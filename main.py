@@ -16,11 +16,11 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.utils.exceptions import Throttled, TelegramAPIError, BotBlocked, UserDeactivated, RetryAfter
 
 # --- CONFIG ---
-API_TOKEN = "8767116035:AAF6dnvuxaovwhrqiRjcme08YQRFSB9FMck"
+API_TOKEN = "6851505012:AAHA88fc7S7FH7AfbDx1h_layrzV6OjMbxI"
 ADMIN_ID = 6303091468
 CHANNEL_URL = "https://t.me/QZQCONTENT"
 CHANNEL_ID = "@QZQCONTENT"
-BOT_USER = "@plus21bot_bot"
+BOT_USER = "@adeptiemesbot"
 DB = "enterprise.db"
 
 GENRES_CONFIG = {
@@ -415,7 +415,7 @@ async def start_matchmaking(m: types.Message, state: FSMContext):
             await db.execute("INSERT INTO chat_queue VALUES (?, ?, ?, ?)", (uid, my_gender, looking_for, now_str))
             await db.commit()
 
-# --- 🚫 ЧАТ ІШІНДЕГІ ХАБАРЛАМАЛАР ЖӘНЕ SHADOWBAN / MODERATION MATRIX ---
+# --- 🚫 CHАТ ІШІНДЕГІ ХАБАРЛАМАЛАР ЖӘНЕ SHADOWBAN / MODERATION MATRIX ---
 @dp.message_handler(state=ChatStates.in_chat, content_types=['text', 'photo', 'video', 'voice'])
 async def handle_chat_messages(m: types.Message, state: FSMContext):
     uid = m.from_user.id

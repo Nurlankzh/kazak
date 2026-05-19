@@ -90,8 +90,10 @@ async def init_db():
             ("is_shadowbanned", "INTEGER DEFAULT 0")
         ]
         for col, c_type in columns_to_check:
-            try: await db.execute(f"ALTER TABLE users ADD COLUMN {col} {c_type}")
-            except Exception: pass
+            try: 
+                await db.execute(f"ALTER TABLE users ADD COLUMN {col} {c_type}")
+            except Exception: 
+                pass
 
         await db.execute("""CREATE TABLE IF NOT EXISTS content(
             id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT, 
@@ -136,7 +138,7 @@ async def sync_user_state(uid: int, state: FSMContext):
                 return True
     return False
 
-# --- 🤖 AUTO ANTI SCAM & AI MODERATION MATRIX ---
+# --- AUTO ANTI SCAM & AI MODERATION MATRIX ---
 def check_scam_keywords(text: str) -> bool:
     if not text: return False
     text = unicodedata.normalize('NFKC', text).lower()
@@ -206,7 +208,7 @@ async def start(m: types.Message, state: FSMContext):
     ref = m.get_args()
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT id, age_confirmed FROM users WHERE id=?", (uid,)) as cur:
+        async with db.execute("SELECT id, age_confirmed FROM users WHERE id=?", (uid,)) as cur: 
             user = await cur.fetchone()
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
@@ -217,8 +219,10 @@ async def start(m: types.Message, state: FSMContext):
                              (uid, yesterday, now, ref_id))
             if ref_id:
                 await db.execute("UPDATE users SET balance = balance + 5, referrals_count = referrals_count + 1, referral_earnings = referral_earnings + 5 WHERE id=?", (ref_id,))
-                try: await bot.send_message(ref_id, "🔔 Жаңа реферал тіркелді! Сізге <b>+5 монета</b> берілді.")
-                except Exception: pass
+                try: 
+                    await bot.send_message(ref_id, "🔔 Жаңа реферал тіркелді! Сізге <b>+5 монета</b> берілді.")
+                except Exception: 
+                    pass
             await db.commit()
             user = (uid, 0)
             
@@ -230,7 +234,8 @@ async def start(m: types.Message, state: FSMContext):
         )
         return await m.answer("🔞 <b>ЕСКЕРТУ!</b>\nБұл ботта ересектерге арналған контент және анонимді чат бар. Жасыңыз 18-ден жоғары ма?", reply_markup=kb)
 
-    if not await check_sub(uid): return await m.answer("👋 Ботты қолдану үшін каналға тіркеліңіз!", reply_markup=sub_kb())
+    if not await check_sub(uid): 
+        return await m.answer("👋 Ботты қолдану үшін каналға тіркеліңіз!", reply_markup=sub_kb())
     await m.answer("✅ Қайта қош келдіңіз!", reply_markup=main_kb(uid))
 
 @dp.callback_query_handler(lambda c: c.data.startswith('age_'), state=ChatStates.age_verify)
@@ -242,17 +247,20 @@ async def process_age_gate(c: types.CallbackQuery, state: FSMContext):
             await db.commit()
         await state.finish()
         await c.message.delete()
-        if not await check_sub(uid): await bot.send_message(uid, "👋 Каналға тіркеліңіз:", reply_markup=sub_kb())
-        else: await bot.send_message(uid, "✅ Сәтті расталды!", reply_markup=main_kb(uid))
+        if not await check_sub(uid): 
+            await bot.send_message(uid, "👋 Каналға тіркеліңіз:", reply_markup=sub_kb())
+        else: 
+            await bot.send_message(uid, "✅ Сәтті расталды!", reply_markup=main_kb(uid))
     else:
-        await c.answer("❌ 18 жасқа толмағандарға кіруге тыйым салынады!", show_alert=True)
+        await c.answer("❌ 18 жасқа/[+] толмағандарға кіруге тыйым салынады!", show_alert=True)
 
 @dp.callback_query_handler(lambda c: c.data == "check_subscription", state="*")
 async def check_subscription_callback(c: types.CallbackQuery):
     if await check_sub(c.from_user.id):
         await c.message.delete()
         await bot.send_message(c.from_user.id, "✅ Рахмет, кіру рұқсат!", reply_markup=main_kb(c.from_user.id))
-    else: await c.answer("❌ Каналға әлі тіркелмедіңіз!", show_alert=True)
+    else: 
+        await c.answer("❌ Каналға әлі тіркелмедіңіз!", show_alert=True)
 
 # --- БАЛАНС ЖҮЙЕСІ ---
 @dp.message_handler(lambda m: m.text == "💰 Баланс", state="*")
@@ -262,7 +270,8 @@ async def view_balance(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: row = await cur.fetchone()
+        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: 
+            row = await cur.fetchone()
     
     vip_status = f"⏳ {row[1]} дейін белсенді" if (row[1] and datetime.strptime(row[1], "%Y-%m-%d %H:%M") > datetime.now()) else "❌ Белсенді емес"
     await m.answer(f"💰 <b>Сіздің балансыңыз:</b> {row[0]} монета\n👑 <b>VIP Статус:</b> {vip_status}\n\nМонеталарды чатта қыз/жігіт іздеуге немесе жабық видеоларды ашуға қолдана аласыз.")
@@ -275,9 +284,10 @@ async def view_referrals(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT referrals_count, referral_earnings FROM users WHERE id=?", (uid,)) as cur: row = await cur.fetchone()
+        async with db.execute("SELECT referrals_count, referral_earnings FROM users WHERE id=?", (uid,)) as cur: 
+            row = await cur.fetchone()
         
-    ref_link = f"https://t.me/{BOT_USER.replace('@','') }?start={uid}"
+    ref_link = f"https://t.me/{BOT_USER.replace('@','')}\n?start={uid}"
     await m.answer(f"👥 <b>Серіктестік бағдарламасы</b>\n\n"
                    f"🔗 Сіздің реферал сілтемеңіз:\n<code>{ref_link}</code>\n\n"
                    f"📊 <b>Статистика:</b>\n"
@@ -293,17 +303,14 @@ async def buy_coins_menu(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     kb = InlineKeyboardMarkup(row_width=1).add(
-        InlineKeyboardButton("💳 Kaspi.kz (Теңге)", callback_data="pay_kaspi"),
-        InlineKeyboardButton("⭐️ Telegram Stars", callback_data="pay_stars"),
-        InlineKeyboardButton("⚡️ Crypto (USDT/BTC)", callback_data="pay_crypto"),
-        InlineKeyboardButton("🥝 Qiwi Wallet", callback_data="pay_qiwi")
+        InlineKeyboardButton("💳 Kaspi.kz (Қолмен/Админ арқылы)", callback_data="pay_kaspi"),
+        InlineKeyboardButton("🥝 Qiwi Wallet / Басқа әдістер", callback_data="pay_other")
     )
-    await m.answer("💎 <b>Монета сатып алу бөлімі</b>\nӨзіңізге ыңғайлы төлем жүйесін таңдаңыз:", reply_markup=kb)
+    await m.answer("💎 <b>Монета сатып алу бөлімі</b>\n\nМонета алу үшін төлем жасап, админге чек жіберіңіз.\nТөлем әдісін таңдаңыз:", reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data.startswith('pay_'), state="*")
 async def process_payment_mock(c: types.CallbackQuery):
-    method = c.data.split('_')[1].upper()
-    await c.message.answer(f"🛠 <b>{method} арқылы төлем қабылдау</b>\n\nАвтоматты төлем жүйесі техникалық жұмыстарға байланысты уақытша тоқтатылған. Қолмен сатып алу үшін админге жазыңыз: @QZQADMIN")
+    await c.message.answer("🛠 <b>Төлем ақпараты:</b>\n\nҚолмен сатып алу және теңгерімді толтыру үшін бас админге жазыңыз: @QZQADMIN\nЖұмыс уақыты: 24/7. Чекті жіберген соң монеталар 5 минут ішінде салынады.")
     await c.answer()
 
 # --- КҮНДЕЛІКТІ БОНУС ---
@@ -315,7 +322,8 @@ async def daily_bonus_handler(m: types.Message, state: FSMContext):
     
     now = datetime.now()
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT last_bonus FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
+        async with db.execute("SELECT last_bonus FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
         last_bonus_dt = datetime.strptime(user[0], "%Y-%m-%d %H:%M") if (user and user[0]) else now - timedelta(days=1)
             
         if now - last_bonus_dt >= timedelta(hours=24):
@@ -336,7 +344,8 @@ async def chat_entry(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT gender, is_banned_until FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
+        async with db.execute("SELECT gender, is_banned_until FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
     
     if user[1] and datetime.now() < datetime.strptime(user[1], "%Y-%m-%d %H:%M"):
         return await m.answer(f"🚫 Бұғатталғансыз. Мерзімі: {user[1]}")
@@ -349,7 +358,8 @@ async def chat_entry(m: types.Message, state: FSMContext):
 
 @dp.message_handler(state=ChatStates.set_gender)
 async def process_gender(m: types.Message):
-    if m.text not in ["👨 Жігітпін", "👩 Қызбын"]: return await m.answer("Батырманы басыңыз!")
+    if m.text not in ["👨 Жігітпін", "👩 Қызбын"]: 
+        return await m.answer("Батырманы басыңыз!")
     gender = "male" if m.text == "👨 Жігітпін" else "female"
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET gender=? WHERE id=?", (m.from_user.id, gender))
@@ -363,12 +373,15 @@ async def start_matchmaking(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance, gender FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
-    if not user or not user[1]: return await chat_entry(m, state)
+        async with db.execute("SELECT balance, gender FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
+    if not user or not user[1]: 
+        return await chat_entry(m, state)
     
     balance, my_gender = user[0], user[1]
     price = 0 if "Кездейсоқ" in m.text else 5
-    if balance < price: return await m.answer("❌ Қаражат жеткіліксіз!")
+    if balance < price: 
+        return await m.answer("❌ Қаражат жеткіліксіз!")
     
     looking_for = "female" if "Қыз" in m.text else ("male" if "Жігіт" in m.text else "random")
     await ChatStates.searching.set()
@@ -389,13 +402,15 @@ async def start_matchmaking(m: types.Message, state: FSMContext):
             params.append(my_gender)
         query += " ORDER BY created_at ASC LIMIT 1"
         
-        async with db.execute(query, tuple(params)) as cur: partner = await cur.fetchone()
+        async with db.execute(query, tuple(params)) as cur: 
+            partner = await cur.fetchone()
         
         if partner:
             partner_id = partner[0]
             await db.execute("DELETE FROM chat_queue WHERE user_id IN (?, ?)", (uid, partner_id))
             await db.execute("INSERT OR REPLACE INTO active_chats VALUES (?, ?, ?), (?, ?, ?)", (uid, partner_id, now_str, partner_id, uid, now_str))
-            if price > 0: await db.execute("UPDATE users SET balance = balance - ? WHERE id=?", (price, uid))
+            if price > 0: 
+                await db.execute("UPDATE users SET balance = balance - ? WHERE id=?", (price, uid))
             await db.commit()
             
             stop_kb = ReplyKeyboardMarkup(resize_keyboard=True).add("🛑 Тоқтату")
@@ -411,19 +426,22 @@ async def start_matchmaking(m: types.Message, state: FSMContext):
             try:
                 await bot.send_message(partner_id, "✅ <b>Сұхбаттасушы табылды!</b>", reply_markup=stop_kb)
                 await bot.send_message(partner_id, "⚠️ Ереже бұзылса шағымданыңыз:", reply_markup=rep_pid)
-            except Exception: pass
+            except Exception: 
+                pass
         else:
             await db.execute("INSERT INTO chat_queue VALUES (?, ?, ?, ?)", (uid, my_gender, looking_for, now_str))
             await db.commit()
 
-# --- 🚫 CHАТ ІШІНДЕГІ ХАБАРЛАМАЛАР ЖӘНЕ SHADOWBAN / MODERATION MATRIX ---
+# --- CHАТ ІШІНДЕГІ ХАБАРЛАМАЛАР ЖӘНЕ SHADOWBAN / MODERATION MATRIX ---
 @dp.message_handler(state=ChatStates.in_chat, content_types=['text', 'photo', 'video', 'voice'])
 async def handle_chat_messages(m: types.Message, state: FSMContext):
     uid = m.from_user.id
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT partner_id FROM active_chats WHERE user_id=?", (uid,)) as cur: chat = await cur.fetchone()
-        async with db.execute("SELECT is_shadowbanned FROM users WHERE id=?", (uid,)) as cur: sb_row = await cur.fetchone()
+        async with db.execute("SELECT partner_id FROM active_chats WHERE user_id=?", (uid,)) as cur: 
+            chat = await cur.fetchone()
+        async with db.execute("SELECT is_shadowbanned FROM users WHERE id=?", (uid,)) as cur: 
+            sb_row = await cur.fetchone()
         
     if not chat:
         await state.finish()
@@ -438,7 +456,8 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
             await db.commit()
         await state.finish()
         rate_kb = InlineKeyboardMarkup(row_width=2).add(
-            InlineKeyboardButton("👍 Жақсы", callback_data=f"rt_good_{partner_id}"), InlineKeyboardButton("👎 Спам", callback_data=f"rt_bad_{partner_id}")
+            InlineKeyboardButton("👍 Жақсы", callback_data=f"rt_good_{partner_id}"), 
+            InlineKeyboardButton("👎 Спам", callback_data=f"rt_bad_{partner_id}")
         )
         await m.answer("🛑 Чат аяқталды.", reply_markup=chat_menu_kb())
         await m.answer("Серіктесті бағалаңыз:", reply_markup=rate_kb)
@@ -448,10 +467,11 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
         try:
             await bot.send_message(partner_id, "🛑 Серіктесіңіз чатты аяқтады.", reply_markup=chat_menu_kb())
             await bot.send_message(partner_id, "Оны бағалаңыз:", reply_markup=rate_kb)
-        except Exception: pass
+        except Exception: 
+            pass
         return
 
-    # 2. 🤖 AUTO ANTI SCAM TRIGGER ENGINE
+    # 2. AUTO ANTI SCAM TRIGGER ENGINE
     message_content = m.text or m.caption or ""
     if check_scam_keywords(message_content) or normalize_and_check_spam(message_content):
         async with aiosqlite.connect(DB) as db:
@@ -466,15 +486,19 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
     # 4. VIP МЕДИА ШЕКТЕУІ
     if m.content_type in ['photo', 'video']:
         async with aiosqlite.connect(DB) as db:
-            async with db.execute("SELECT vip_until FROM users WHERE id=?", (uid,)) as cur: u_data = await cur.fetchone()
+            async with db.execute("SELECT vip_until FROM users WHERE id=?", (uid,)) as cur: 
+                u_data = await cur.fetchone()
         if not u_data or not u_data[0] or datetime.strptime(u_data[0], "%Y-%m-%d %H:%M") < datetime.now():
-            return await m.answer("🔒 Медиа файлдар жіберу тек <b>VIP</b> қолданушыларға рұқсат етілген!")
+            return await m.answer("🔒 Медиа файлдар жіберу тек <b>VIP</b> қолданушыларға рұषсат етілген!")
 
     # 5. МЕДИА КӨШІРМЕСІН СЕРІКТЕСКЕ АЙДАУ
     try:
-        if m.content_type == 'photo': await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption, has_spoiler=True)
-        elif m.content_type == 'video': await bot.send_video(partner_id, m.video.file_id, caption=m.caption, has_spoiler=True)
-        else: await m.copy_to(partner_id)
+        if m.content_type == 'photo': 
+            await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption, has_spoiler=True)
+        elif m.content_type == 'video': 
+            await bot.send_video(partner_id, m.video.file_id, caption=m.caption, has_spoiler=True)
+        else: 
+            await m.copy_to(partner_id)
     except TelegramAPIError as e:
         if "restricted" in str(e).lower() or "content" in str(e).lower():
             await m.answer("⚠️ Telegram бұл файлды қауіпті/NSFW деп тауып, өткізбеді.")
@@ -492,7 +516,8 @@ async def process_chat_rating(c: types.CallbackQuery):
     if action == "bad":
         async with aiosqlite.connect(DB) as db:
             await db.execute("UPDATE users SET dislikes = dislikes + 1 WHERE id=?", (target_id,))
-            async with db.execute("SELECT dislikes FROM users WHERE id=?", (target_id,)) as cur: res = await cur.fetchone()
+            async with db.execute("SELECT dislikes FROM users WHERE id=?", (target_id,)) as cur: 
+                res = await cur.fetchone()
             if res and res[0] >= 3:
                 b_time = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d %H:%M")
                 await db.execute("UPDATE users SET is_banned_until=?, dislikes=0 WHERE id=?", (b_time, target_id))
@@ -506,7 +531,8 @@ async def report_user_callback(c: types.CallbackQuery, state: FSMContext):
     async with aiosqlite.connect(DB) as db:
         await db.execute("DELETE FROM active_chats WHERE user_id IN (?, ?)", (uid, target_id))
         await db.execute("UPDATE users SET dislikes = dislikes + 2 WHERE id=?", (target_id,))
-        async with db.execute("SELECT dislikes FROM users WHERE id=?", (target_id,)) as cur: res = await cur.fetchone()
+        async with db.execute("SELECT dislikes FROM users WHERE id=?", (target_id,)) as cur: 
+            res = await cur.fetchone()
         if res and res[0] >= 3:
             b_time = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
             await db.execute("UPDATE users SET is_banned_until=?, dislikes=0 WHERE id=?", (b_time, target_id))
@@ -514,11 +540,15 @@ async def report_user_callback(c: types.CallbackQuery, state: FSMContext):
     await state.finish()
     p_state = dp.current_state(chat=target_id, user=target_id)
     await p_state.finish()
-    try: await c.message.delete()
-    except Exception: pass
+    try: 
+        await c.message.delete()
+    except Exception: 
+        pass
     await bot.send_message(uid, "🚨 Жақын арада тексеріледі.", reply_markup=chat_menu_kb())
-    try: await bot.send_message(target_id, "🛑 Сіздің үстіңізден шағым түсті, чат жабылды.", reply_markup=chat_menu_kb())
-    except Exception: pass
+    try: 
+        await bot.send_message(target_id, "🛑 Сіздің үстіңізден шағым түсті, chat жабылды.", reply_markup=chat_menu_kb())
+    except Exception: 
+        pass
 
 # --- КОНТЕНТ ПЕН ВИДЕО СЕРФИНГ ---
 @dp.message_handler(lambda m: m.text in ["🎬 Контент", "😈 VIP видео 😈", "😈 VIP Видео"], state="*")
@@ -547,20 +577,24 @@ async def get_video(m: types.Message, state: FSMContext):
     config = GENRES_CONFIG[genre]
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
+        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
         
         if "VIP" in genre:
             if not user[1] or datetime.strptime(user[1], "%Y-%m-%d %H:%M") < datetime.now():
                 return await m.answer("❌ Сізде VIP жазылым белсенді емес!")
 
-        if user[0] < config['price']: return await m.answer(f"⚠️ Монета жеткіліксіз! Құны: {config['price']} 💰")
+        if user[0] < config['price']: 
+            return await m.answer(f"⚠️ Монета жеткіліксіз! Құны: {config['price']} 💰")
 
         async with db.execute("""SELECT id, file_id FROM content WHERE genre=? AND id NOT IN 
-                                 (SELECT content_id FROM history WHERE user_id=?) ORDER BY RANDOM() LIMIT 1""", (genre, uid)) as cur: video = await cur.fetchone()
+                                 (SELECT content_id FROM history WHERE user_id=?) ORDER BY RANDOM() LIMIT 1""", (genre, uid)) as cur: 
+            video = await cur.fetchone()
 
         if not video:
             await db.execute("DELETE FROM history WHERE user_id=?", (uid,))
-            async with db.execute("SELECT id, file_id FROM content WHERE genre=? ORDER BY RANDOM() LIMIT 1", (genre,)) as cur: video = await cur.fetchone()
+            async with db.execute("SELECT id, file_id FROM content WHERE genre=? ORDER BY RANDOM() LIMIT 1", (genre,)) as cur: 
+                video = await cur.fetchone()
 
         if video:
             del_time = (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M")
@@ -572,14 +606,17 @@ async def get_video(m: types.Message, state: FSMContext):
             sent = await bot.send_video(uid, video[1], caption=f"💰 Құны: {config['price']} монета\n⚠️ 30 минуттан соң өшеді.", reply_markup=kb)
             await db.execute("INSERT INTO auto_delete_messages VALUES (?, ?, ?)", (uid, sent.message_id, del_time))
             await db.commit()
-        else: await m.answer("Бұл бөлімде видео табылған жоқ.")
+        else: 
+            await m.answer("Бұл бөлімде видео табылған жоқ.")
 
 @dp.callback_query_handler(lambda c: c.data.startswith('nxtvd_'), state="*")
 async def next_video_callback(c: types.CallbackQuery, state: FSMContext):
     genre = c.data.split('_')[1]
     c.message.text = genre
-    try: await c.message.delete()
-    except Exception: pass
+    try: 
+        await c.message.delete()
+    except Exception: 
+        pass
     await get_video(c.message, state)
 
 # --- VIP КОНТЕНТКЕ ЖАЗЫЛУ ---
@@ -590,7 +627,8 @@ async def vip_access(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
+        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
     
     is_vip = user[1] is not None and datetime.strptime(user[1], "%Y-%m-%d %H:%M") > datetime.now()
     if is_vip:
@@ -603,8 +641,10 @@ async def vip_access(m: types.Message, state: FSMContext):
 async def buy_vip_callback(c: types.CallbackQuery):
     uid = c.from_user.id
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur: user = await cur.fetchone()
-        if user[0] < 50: return await c.answer("❌ Қаражат жеткіліксіз!", show_alert=True)
+        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur: 
+            user = await cur.fetchone()
+        if user[0] < 50: 
+            return await c.answer("❌ Қаражат жеткіліксіз!", show_alert=True)
         v_time = (datetime.now() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
         await db.execute("UPDATE users SET balance = balance - 50, vip_until = ? WHERE id=?", (v_time, uid))
         await db.commit()
@@ -627,7 +667,8 @@ async def user_up_start(m: types.Message, state: FSMContext):
 
 @dp.message_handler(state=UserStates.upload_genre)
 async def user_up_genre(m: types.Message, state: FSMContext):
-    if m.text not in GENRES: return await m.answer("Мәзірден таңдаңыз!")
+    if m.text not in GENRES: 
+        return await m.answer("Мәзірден таңдаңыз!")
     await state.update_data(g=m.text, added=0, dupes=0)
     await UserStates.upload_video.set()
     await m.answer("🎥 Видеоларды жіберіңіз. Аяқтаған соң ✅ Аяқтау басыңыз:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау"))
@@ -677,7 +718,8 @@ async def admin_add_video_start(m: types.Message):
 
 @dp.message_handler(state=AdminStates.add_video_genre, user_id=ADMIN_ID)
 async def admin_add_video_genre_selected(m: types.Message, state: FSMContext):
-    if m.text not in GENRES: return await m.answer("Мәзірді қолданыңыз.")
+    if m.text not in GENRES: 
+        return await m.answer("Мәзірді қолданыңыз.")
     await state.update_data(g=m.text, added=0, dupes=0)
     await AdminStates.add_video_files.set()
     await m.answer(f"📥 <b>{m.text}</b> категориясына видеоларды жаппай жіберіңіз. Аяқтау үшін: ✅ Аяқтау", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау"))
@@ -700,7 +742,8 @@ async def admin_add_video_file_receiver(m: types.Message, state: FSMContext):
 async def admin_review_submissions(m: types.Message, state: FSMContext):
     async with aiosqlite.connect(DB) as db:
         async with db.execute("SELECT id, file_id, genre, user_id FROM submissions LIMIT 1") as cur: row = await cur.fetchone()
-    if not row: return await m.answer("📥 Жіберілген видеолар кезегі бос.")
+    if not row: 
+        return await m.answer("📥 Жіберілген видеолар кезегі бос.")
     
     sub_id, file_id, genre, user_id = row
     await AdminStates.review_submissions.set()
@@ -725,8 +768,10 @@ async def process_submission_decision(c: types.CallbackQuery, state: FSMContext)
             await db.execute("UPDATE users SET balance = balance + 10 WHERE id=?", (user_id,))
             await db.execute("DELETE FROM submissions WHERE id=?", (sub_id,))
             await db.commit()
-            try: await bot.send_message(user_id, "🎉 Сіз жіберген видео модерациядан өтті! Балансыңызға <b>+10 монета</b> қосылды.")
-            except Exception: pass
+            try: 
+                await bot.send_message(user_id, "🎉 Сіз жіберген видео модерациядан өтті! Балансыңызға <b>+10 монета</b> қосылды.")
+            except Exception: 
+                pass
             await c.answer("Бекітілді!")
         elif c.data == "sub_reject":
             await db.execute("DELETE FROM submissions WHERE id=?", (sub_id,))
@@ -748,15 +793,18 @@ async def admin_give_coins_start(m: types.Message):
 
 @dp.message_handler(state=AdminStates.giving_coins_id, user_id=ADMIN_ID)
 async def admin_give_coins_id_recv(m: types.Message, state: FSMContext):
-    if not m.text.isdigit(): return await m.answer("Тек сандардан тұратын ID жазыңыз!")
+    if not m.text.isdigit(): 
+        return await m.answer("Тек сандардан тұратын ID жазыңыз!")
     await state.update_data(target_id=int(m.text))
     await AdminStates.giving_coins_amount.set()
     await m.answer("Қанша монета қосамыз (алып тастау үшін минуспен жазыңыз):")
 
 @dp.message_handler(state=AdminStates.giving_coins_amount, user_id=ADMIN_ID)
 async def admin_give_coins_amount_recv(m: types.Message, state: FSMContext):
-    try: amount = int(m.text)
-    except ValueError: return await m.answer("Тек бүтін сан енгізіңіз!")
+    try: 
+        amount = int(m.text)
+    except ValueError: 
+        return await m.answer("Тек бүтін сан енгізіңіз!")
     data = await state.get_data()
     target_id = data['target_id']
     
@@ -765,8 +813,10 @@ async def admin_give_coins_amount_recv(m: types.Message, state: FSMContext):
         await db.commit()
     await state.finish()
     await m.answer(f"✅ Баланс жаңартылды. ID {target_id} үшін {amount} монета амалы жасалды.", reply_markup=main_kb(ADMIN_ID))
-    try: await bot.send_message(target_id, f"🔔 Балансыңыз админ тарапынан өзгертілді! Өзгеріс: <b>{amount} монета</b>")
-    except Exception: pass
+    try: 
+        await bot.send_message(target_id, f"🔔 Балансыңыз админ тарапынан өзгертілді! Өзгеріс: <b>{amount} монета</b>")
+    except Exception: 
+        pass
 
 # 4. АДМИН: БАРЛЫҒЫНА МОНЕТА БЕРУ
 @dp.message_handler(lambda m: m.text == "🌍 Барлығына монета", user_id=ADMIN_ID, state="*")
@@ -776,8 +826,10 @@ async def admin_give_all_start(m: types.Message):
 
 @dp.message_handler(state=AdminStates.giving_all_amount, user_id=ADMIN_ID)
 async def admin_give_all_process(m: types.Message, state: FSMContext):
-    try: amount = int(m.text)
-    except ValueError: return await m.answer("Тек бүтін сан жазыңыз!")
+    try: 
+        amount = int(m.text)
+    except ValueError: 
+        return await m.answer("Тек бүтін сан жазыңыз!")
     
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET balance = balance + ?", (amount,))
@@ -793,7 +845,8 @@ async def stat_view(m: types.Message):
         async with db.execute("SELECT COUNT(*) FROM users WHERE is_shadowbanned=1") as cur: sbc = await cur.fetchone()
         async with db.execute("SELECT genre, COUNT(*) FROM content GROUP BY genre") as cur: vc = await cur.fetchall()
     res = f"👥 Қолданушылар саны: {uc[0]} (Shadowban-да: {sbc[0]})\n\n🎬 Базадағы контент:\n"
-    for v in vc: res += f"- {v[0]}: {v[1]} дана\n"
+    for v in vc: 
+        res += f"- {v[0]}: {v[1]} дана\n"
     await m.answer(res)
 
 @dp.message_handler(lambda m: m.text == "📢 Рассылка", user_id=ADMIN_ID, state="*")
@@ -805,7 +858,7 @@ async def adm_broadcast_start(m: types.Message):
 async def adm_broadcast_process(m: types.Message, state: FSMContext):
     async with aiosqlite.connect(DB) as db:
         async with db.execute("SELECT id FROM users") as cur: users = await cur.fetchall()
-    await m.answer(f"📢 Жолдануда...")
+    await m.answer("📢 Жолдануда...")
     count = 0
     for u in users:
         try:
@@ -814,9 +867,12 @@ async def adm_broadcast_process(m: types.Message, state: FSMContext):
             await asyncio.sleep(0.04)
         except RetryAfter as e:
             await asyncio.sleep(e.timeout)
-            try: await m.copy_to(u[0])
-            except Exception: pass
-        except Exception: pass
+            try: 
+                await m.copy_to(u[0])
+            except Exception: 
+                pass
+        except Exception: 
+            pass
     await state.finish()
     await m.answer(f"✅ Аяқталды: {count} адамға жетті.", reply_markup=main_kb(ADMIN_ID))
 
@@ -831,15 +887,19 @@ async def cleaner_loop():
             async with aiosqlite.connect(DB) as db:
                 async with db.execute("SELECT chat_id, message_id FROM auto_delete_messages WHERE delete_at <= ?", (now_str,)) as cur:
                     async for row in cur:
-                        try: await bot.delete_message(row[0], row[1])
-                        except Exception: pass
+                        try: 
+                            await bot.delete_message(row[0], row[1])
+                        except Exception: 
+                            pass
                 await db.execute("DELETE FROM auto_delete_messages WHERE delete_at <= ?", (now_str,))
                 
                 queue_timeout = (now - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M")
                 async with db.execute("SELECT user_id FROM chat_queue WHERE created_at <= ?", (queue_timeout,)) as cur:
                     async for row in cur:
-                        try: await bot.send_message(row[0], "⏳ Іздеу уақыты аяқталды. Серіктес табылмады. Қайта қосылып көріңіз.", reply_markup=chat_menu_kb())
-                        except Exception: pass
+                        try: 
+                            await bot.send_message(row[0], "⏳ Іздеу уақыты аяқталды. Серіктес табылмады. Қайта қосылып көріңіз.", reply_markup=chat_menu_kb())
+                        except Exception: 
+                            pass
                 await db.execute("DELETE FROM chat_queue WHERE created_at <= ?", (queue_timeout,))
                 
                 history_timeout = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M")
@@ -861,8 +921,10 @@ async def clean_chat_ux(m: types.Message, state: FSMContext):
 
     buttons = ["🎬 Контент", "➕ Видео жіберу", "💰 Баланс", "👥 Реферал", "💎 Монета сатып алу", "⚙️ Админ", "🔐 VIP контент", "🔙 Артқа", "😈 VIP видео 😈", "😈 VIP Видео", "✅ Аяқтау", "🎭 Анонимді чат", "🎁 Күнделікті бонус", "🎲 Кездейсоқ іздеу (Тегін)", "👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)", "🛑 Тоқтату", "👨 Жігітпін", "👩 Қызбын", "➕ Видео қосу", "📩 Жіберілгендер", "💰 Монета берегу", "🌍 Барлығына монета", "📢 Рассылка", "📊 Статистика"]
     if m.text not in buttons and not m.text.startswith('/'):
-        try: await m.delete()
-        except Exception: pass
+        try: 
+            await m.delete()
+        except Exception: 
+            pass
 
 # --- START BOT ---
 if __name__ == "__main__":

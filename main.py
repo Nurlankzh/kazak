@@ -18,11 +18,13 @@ from aiogram.utils.exceptions import Throttled, TelegramAPIError, BotBlocked, Us
 
 # --- CONFIG ---
 API_TOKEN = os.getenv("BOT_TOKEN", "6851505012:AAHA88fc7S7FH7AfbDx1h_layrzV6OjMbxI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "6303091468"))
+
+# Қауіпсіз ADMIN_ID тексерісі:
+admin_env = str(os.getenv("ADMIN_ID", "6303091468")).strip()
+ADMIN_ID = int(admin_env) if admin_env.isdigit() else 6303091468
+
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")
-BOT_USER = os.getenv("BOT_USER", "@adeptiemesbot")
-DB = "enterprise.db"
+
 
 GENRES_CONFIG = {
     "🎬 Қазақша": {"price": 5},

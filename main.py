@@ -348,7 +348,7 @@ async def chat_entry(m: types.Message, state: FSMContext):
 
 @dp.message_handler(state=ChatStates.set_gender)
 async def process_gender(m: types.Message):
-    if m.text not in ["👨 Жігітпін", "👩 Қызбын"]: return m.answer("Батырманы басыңыз!")
+    if m.text not in ["👨 Жігітпін", "👩 Қызбын"]: return await m.answer("Батырманы басыңыз!")
     gender = "male" if m.text == "👨 Жігітпін" else "female"
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET gender=? WHERE id=?", (gender, m.from_user.id))
@@ -626,7 +626,7 @@ async def user_up_start(m: types.Message, state: FSMContext):
 
 @dp.message_handler(state=UserStates.upload_genre)
 async def user_up_genre(m: types.Message, state: FSMContext):
-    if m.text not in GENRES: return m.answer("Мәзірден таңдаңыз!")
+    if m.text not in GENRES: return await m.answer("Мәзірден таңдаңыз!")
     await state.update_data(g=m.text, added=0, dupes=0)
     await UserStates.upload_video.set()
     await m.answer("🎥 Видеоларды жіберіңіз. Аяқтаған соң ✅ Аяқтау басыңыз:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау"))
@@ -676,7 +676,7 @@ async def admin_add_video_start(m: types.Message):
 
 @dp.message_handler(state=AdminStates.add_video_genre, user_id=ADMIN_ID)
 async def admin_add_video_genre_selected(m: types.Message, state: FSMContext):
-    if m.text not in GENRES: return m.answer("Мәзірді қолданыңыз.")
+    if m.text not in GENRES: return await m.answer("Мәзірді қолданыңыз.")
     await state.update_data(g=m.text, added=0, dupes=0)
     await AdminStates.add_video_files.set()
     await m.answer(f"📥 <b>{m.text}</b> категориясына видеоларды жаппай жіберіңіз. Аяқтау үшін: ✅ Аяқтау", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау"))
@@ -747,7 +747,7 @@ async def admin_give_coins_start(m: types.Message):
 
 @dp.message_handler(state=AdminStates.giving_coins_id, user_id=ADMIN_ID)
 async def admin_give_coins_id_recv(m: types.Message, state: FSMContext):
-    if not m.text.isdigit(): return m.answer("Тек сандардан тұратын ID жазыңыз!")
+    if not m.text.isdigit(): return await m.answer("Тек сандардан тұратын ID жазыңыз!")
     await state.update_data(target_id=int(m.text))
     await AdminStates.giving_coins_amount.set()
     await m.answer("Қанша монета қосамыз (алып тастау үшін минуспен жазыңыз):")

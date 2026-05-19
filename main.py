@@ -48,6 +48,10 @@ class AntiFloodMiddleware(BaseMiddleware):
         super(AntiFloodMiddleware, self).__init__()
 
     async def on_process_message(self, message: types.Message, data: dict):
+        # Админ үшін антифлуд өшірілген
+        if message.from_user.id == ADMIN_ID:
+            return
+            
         try:
             await dp.throttle('global_throttling', rate=self.limit)
         except Throttled:
@@ -64,7 +68,6 @@ class AdminStates(StatesGroup):
     broadcast_msg = State()
     add_video_genre = State()
     add_video_files = State()
-    review_submissions = State()
 
 class UserStates(StatesGroup):
     upload_genre = State()
@@ -90,7 +93,6 @@ async def init_db():
             uploaded_today INTEGER DEFAULT 0, last_upload_date TEXT DEFAULT NULL,
             last_search_type TEXT DEFAULT NULL)""")
         
-        # Add columns safely if not exist
         columns_to_check = [
             ("referred_by", "INTEGER DEFAULT NULL"), 
             ("referrals_count", "INTEGER DEFAULT 0"), 
@@ -392,10 +394,10 @@ async def chat_entry(m: types.Message, state: FSMContext):
         async with db.execute("SELECT gender, is_banned_until FROM users WHERE id=?", (uid,)) as cur: 
             user = await cur.fetchone()
             
-    if user[1] and datetime.now() < datetime.strptime(user[1], "%Y-%m-%d %H:%M"):
+    if user and user[1] and datetime.now() < datetime.strptime(user[1], "%Y-%m-%d %H:%M"):
         return await m.answer(f"🚫 Сіз бұғатталғансыз. Мерзімі: {user[1]}")
             
-    if not user[0]:
+    if not user or not user[0]:
         await ChatStates.set_gender.set()
         kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add("👨 Жігітпін", "👩 Қызбын", "🔙 Артқа")
         return await m.answer("Өз жынысыңызды таңдаңыз:", reply_markup=kb)
@@ -408,7 +410,8 @@ async def process_gender(m: types.Message, state: FSMContext):
     
     gender = "male" if m.text == "👨 Жігітпін" else "female"
     async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE users SET gender=? WHERE id=?", (m.from_user.id, gender))
+        # ТҮЗЕТУ ОСЫ ЖЕРДЕ: Параметрлердің орны ауысып кеткен еді (gender, uid) 
+        await db.execute("UPDATE users SET gender=? WHERE id=?", (gender, m.from_user.id))
         await db.commit()
     await state.finish()
     await m.answer("✅ Сақталды!", reply_markup=chat_menu_kb())
@@ -783,39 +786,61 @@ async def adm_add_vf(m: types.Message, state: FSMContext):
     await state.update_data(added=data.get('added', 0) + 1)
 
 @dp.message_handler(lambda m: m.text == "📩 Жіберілгендер", state="*")
-async def adm_rev(m: types.Message, state: FSMContext):
+async def adm_rev(m: types.Message):
     if m.from_user.id != ADMIN_ID: return
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT id, file_id, genre, user_id FROM submissions LIMIT 1") as cur: row = await cur.fetchone()
-    if not row: return await m.answer("Кезек бос.")
+        # ТҮЗЕТУ: Барлық видеоларды бірден алып шығу
+        async with db.execute("SELECT id, file_id, genre, user_id FROM submissions") as cur: 
+            rows = await cur.fetchall()
+            
+    if not rows: return await m.answer("Кезек бос.")
     
-    await AdminStates.review_submissions.set()
-    await state.update_data(sub_id=row[0], file_id=row[1], genre=row[2], user_id=row[3])
-    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("✅", callback_data="sb_ok"), InlineKeyboardButton("❌", callback_data="sb_no"), InlineKeyboardButton("🛑", callback_data="sb_ex"))
-    await bot.send_video(ADMIN_ID, row[1], caption=f"ID: {row[3]} | {row[2]}", reply_markup=kb)
+    await m.answer(f"Барлығы {len(rows)} видео табылды. Жіберілуде...")
+    
+    for row in rows:
+        sub_id, file_id, genre, user_id = row
+        kb = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("✅ Қабылдау", callback_data=f"sb_ok_{sub_id}"), 
+            InlineKeyboardButton("❌ Қабылдамау", callback_data=f"sb_no_{sub_id}")
+        )
+        try:
+            await bot.send_video(ADMIN_ID, file_id, caption=f"ID: {user_id} | Жанр: {genre}", reply_markup=kb)
+            await asyncio.sleep(0.05) # Лимитке ұрынбау үшін аздап кідіріс
+        except Exception:
+            pass
 
-@dp.callback_query_handler(lambda c: c.data.startswith('sb_'), state=AdminStates.review_submissions)
-async def adm_dec(c: types.CallbackQuery, state: FSMContext):
+@dp.callback_query_handler(lambda c: c.data.startswith('sb_'), state="*")
+async def adm_dec(c: types.CallbackQuery):
     if c.from_user.id != ADMIN_ID: return
-    d = await state.get_data()
+    
+    parts = c.data.split('_')
+    action = parts[1] # ok немесе no
+    sub_id = int(parts[2])
+    
     async with aiosqlite.connect(DB) as db:
-        if c.data == "sb_ok":
-            await db.execute("INSERT OR IGNORE INTO content(file_id, file_unique_id, type, genre) VALUES (?,?,'video',?)", (d['file_id'], f"sub_{d['sub_id']}", d['genre']))
-            await db.execute("UPDATE users SET balance = balance + 10 WHERE id=?", (d['user_id'],))
-            await db.execute("DELETE FROM submissions WHERE id=?", (d['sub_id'],))
+        async with db.execute("SELECT file_id, genre, user_id, file_unique_id FROM submissions WHERE id=?", (sub_id,)) as cur:
+            row = await cur.fetchone()
+            
+        if not row:
+            return await c.message.delete()
+            
+        file_id, genre, user_id, file_unique_id = row
+        
+        if action == "ok":
+            await db.execute("INSERT OR IGNORE INTO content(file_id, file_unique_id, type, genre) VALUES (?,?,'video',?)", (file_id, file_unique_id, genre))
+            await db.execute("UPDATE users SET balance = balance + 10 WHERE id=?", (user_id,))
+            await db.execute("DELETE FROM submissions WHERE id=?", (sub_id,))
             await db.commit()
-            try: await bot.send_message(d['user_id'], "🎉 Видео бекітілді! +10 💰")
+            
+            try: await bot.send_message(user_id, f"🎉 Сіздің '{genre}' жанрындағы видеоңыз бекітілді! +10 💰")
             except Exception: pass
-        elif c.data == "sb_no":
-            await db.execute("DELETE FROM submissions WHERE id=?", (d['sub_id'],))
+            
+            await c.message.edit_caption(caption=f"{c.message.caption}\n\n✅ Қабылданды", reply_markup=None)
+            
+        elif action == "no":
+            await db.execute("DELETE FROM submissions WHERE id=?", (sub_id,))
             await db.commit()
-        else:
-            await state.finish()
-            await c.message.delete()
-            kb = await get_main_kb(ADMIN_ID)
-            return await bot.send_message(ADMIN_ID, "Тоқтатылды.", reply_markup=kb)
-    await c.message.delete()
-    await adm_rev(c.message, state)
+            await c.message.edit_caption(caption=f"{c.message.caption}\n\n❌ Қабылданбады", reply_markup=None)
 
 @dp.message_handler(lambda m: m.text == "💰 Монета берегу", state="*")
 async def adm_gc_id(m: types.Message):

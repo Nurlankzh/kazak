@@ -361,7 +361,7 @@ async def buy_coins(m: types.Message, state: FSMContext):
 
 @dp.callback_query_handler(lambda c: c.data.startswith('pay_'), state="*")
 async def pay_mock(c: types.CallbackQuery):
-    await c.message.answer("🛠 <b>Төлем:</b>\nБас админге жазыңыз: @QZQADMIN")
+    await c.message.answer("🛠 <b>Төлем:</b>\nБас админге жазыңыз: @QzqMoneta)
     await c.answer()
 
 # --- DAILY BONUS ---

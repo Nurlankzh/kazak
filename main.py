@@ -187,21 +187,40 @@ def main_kb(uid):
     kb.add("🎬 Контент", "➕ Видео жіберу")
     kb.add("💰 Баланс", "👥 Реферал")
     kb.add("💎 Монета сатып алу", "🔐 VIP контент")
-    if uid == ADMIN_ID: kb.add("⚙️ Админ")
+    if uid == ADMIN_ID: 
+        kb.add("⚙️ Админ")
     return kb
 
 def chat_menu_kb():
-    return ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add(
-        "🎲 Кездейсоқ іздеу (Тегін)", "👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)", "🔙 Артқа"
-    )
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add("🎲 Кездейсоқ іздеу (Тегін)")
+    kb.add("👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)")
+    kb.add("🔙 Артқа")
+    return kb
 
 # --- GLOBAL BACK BUTTON ---
 @dp.message_handler(lambda m: m.text == "🔙 Артқа", state="*")
 async def global_back(m: types.Message, state: FSMContext):
     uid = m.from_user.id
     async with aiosqlite.connect(DB) as db:
+        # Кезектен шығару
         await db.execute("DELETE FROM chat_queue WHERE user_id=?", (uid,))
+        
+        # Егер чаттың ішінде болса, чатты тоқтатып, серіктеске хабарлау
+        async with db.execute("SELECT partner_id FROM active_chats WHERE user_id=?", (uid,)) as cur:
+            chat = await cur.fetchone()
+        if chat:
+            partner_id = chat[0]
+            await db.execute("DELETE FROM active_chats WHERE user_id IN (?, ?)", (uid, partner_id))
+            try:
+                p_state = dp.current_state(chat=partner_id, user=partner_id)
+                await p_state.finish()
+                await bot.send_message(partner_id, "🛑 Серіктесіңіз чаттан шығып кетті.", reply_markup=chat_menu_kb())
+            except Exception:
+                pass
+        
         await db.commit()
+        
     await state.finish()
     await m.answer("Басты мәзір:", reply_markup=main_kb(uid))
 
@@ -257,7 +276,7 @@ async def process_age_gate(c: types.CallbackQuery, state: FSMContext):
         else: 
             await bot.send_message(uid, "✅ Сәтті расталды!", reply_markup=main_kb(uid))
     else:
-        await c.answer("❌ 18 жасқа/[+] толмағандарға кіруге тыйым салынады!", show_alert=True)
+        await c.answer("❌ 18 жасқа толмағандарға кіруге тыйым салынады!", show_alert=True)
 
 @dp.callback_query_handler(lambda c: c.data == "check_subscription", state="*")
 async def check_subscription_callback(c: types.CallbackQuery):
@@ -357,7 +376,8 @@ async def chat_entry(m: types.Message, state: FSMContext):
             
     if not user[0]:
         await ChatStates.set_gender.set()
-        return await m.answer("Жынысыңызды таңдаңыз:", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("👨 Жігітпін", "👩 Қызбын").add("🔙 Артқа"))
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add("👨 Жігітпін", "👩 Қызбын", "🔙 Артқа")
+        return await m.answer("Жынысыңызды таңдаңыз:", reply_markup=kb)
         
     await m.answer("🎭 Серіктес іздеу мәзірі:", reply_markup=chat_menu_kb())
 
@@ -476,7 +496,7 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
             pass
         return
 
-    # 2. AUTO ANTI SCAM TRIGGER ENGINE
+    # AUTO ANTI SCAM TRIGGER ENGINE
     message_content = m.text or m.caption or ""
     if check_scam_keywords(message_content) or normalize_and_check_spam(message_content):
         async with aiosqlite.connect(DB) as db:
@@ -484,11 +504,11 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
             await db.commit()
         is_shadowbanned = 1
 
-    # 3. SHADOWBAN ACTION
+    # SHADOWBAN ACTION
     if is_shadowbanned:
         return
 
-    # 4. VIP МЕДИА ШЕКТЕУІ
+    # VIP МЕДИА ШЕКТЕУІ
     if m.content_type in ['photo', 'video']:
         async with aiosqlite.connect(DB) as db:
             async with db.execute("SELECT vip_until FROM users WHERE id=?", (uid,)) as cur: 
@@ -496,7 +516,7 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
         if not u_data or not u_data[0] or datetime.strptime(u_data[0], "%Y-%m-%d %H:%M") < datetime.now():
             return await m.answer("🔒 Медиа файлдар жіберу тек <b>VIP</b> қолданушыларға рұқсат етілген!")
 
-    # 5. МЕДИА КӨШІРМЕСІН СЕРІКТЕСКЕ АЙДАУ
+    # МЕДИА КӨШІРМЕСІН СЕРІКТЕСКЕ АЙДАУ
     try:
         if m.content_type == 'photo': 
             await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption, has_spoiler=True)
@@ -528,6 +548,7 @@ async def process_chat_rating(c: types.CallbackQuery):
                 await db.execute("UPDATE users SET is_banned_until=?, dislikes=0 WHERE id=?", (b_time, target_id))
             await db.commit()
     await c.message.edit_text("✅ Рахмет, баға сақталды!")
+    await c.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith('report_'), state="*")
 async def report_user_callback(c: types.CallbackQuery, state: FSMContext):
@@ -554,21 +575,21 @@ async def report_user_callback(c: types.CallbackQuery, state: FSMContext):
         await bot.send_message(target_id, "🛑 Сіздің үстіңізден шағым түсті, chat жабылды.", reply_markup=chat_menu_kb())
     except Exception: 
         pass
+    await c.answer("Шағым жіберілді!")
 
 # --- КОНТЕНТ ПЕН ВИДЕО СЕРФИНГ ---
-@dp.message_handler(lambda m: m.text in ["🎬 Контент", "😈 VIP видео 😈", "😈 VIP Видео"], state="*")
+@dp.message_handler(lambda m: m.text in ["🎬 Контент", "😈 VIP Видео"], state="*")
 async def content_menu(m: types.Message, state: FSMContext):
     uid = m.from_user.id
     await sync_user_state(uid, state)
     if await state.get_state() == ChatStates.in_chat.state: return
     
     if "VIP" in m.text:
-        m.text = "😈 VIP Видео"
         return await get_video(m, state)
         
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    for g in GENRES:
-        if "VIP" not in g: kb.add(g)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    genres = [g for g in GENRES if "VIP" not in g]
+    kb.add(*genres)
     kb.add("🔙 Артқа")
     await m.answer("Жанр таңдаңыз:", reply_markup=kb)
 
@@ -623,6 +644,7 @@ async def next_video_callback(c: types.CallbackQuery, state: FSMContext):
     except Exception: 
         pass
     await get_video(c.message, state)
+    await c.answer()
 
 # --- VIP КОНТЕНТКЕ ЖАЗЫЛУ ---
 @dp.message_handler(lambda m: m.text == "🔐 VIP контент", state="*")
@@ -637,7 +659,7 @@ async def vip_access(m: types.Message, state: FSMContext):
     
     is_vip = user[1] is not None and datetime.strptime(user[1], "%Y-%m-%d %H:%M") > datetime.now()
     if is_vip:
-        await m.answer(f"👑 VIP Мерзімі: {user[1]} дейін.", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("😈 VIP Видео", "🔙 Артқа"))
+        await m.answer(f"👑 VIP Мерзімі: {user[1]} дейін.", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add("😈 VIP Видео", "🔙 Артқа"))
     else:
         await m.answer("🔐 <b>VIP Жазылым (50 💰 / 24 сағат)</b>\n\nАртықшылықтары:\n- Чатта фото/видео жіберу рұқсаты\n- Жабық VIP категорияны көру мүмкіндігі.", 
                        reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Сатып алу (50 💰)", callback_data="buy_vip")))
@@ -655,6 +677,7 @@ async def buy_vip_callback(c: types.CallbackQuery):
         await db.commit()
     await c.message.delete()
     await bot.send_message(uid, "👑 VIP сәтті қосылды!", reply_markup=main_kb(uid))
+    await c.answer()
 
 # --- ПАЙДАЛАНУШЫЛАРДАН ВИДЕО ҚАБЫЛДАУ ---
 @dp.message_handler(lambda m: m.text == "➕ Видео жіберу", state="*")
@@ -664,9 +687,9 @@ async def user_up_start(m: types.Message, state: FSMContext):
     if await state.get_state() == ChatStates.in_chat.state: return
     
     await UserStates.upload_genre.set()
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    for g in GENRES:
-        if "VIP" not in g: kb.add(g)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    genres = [g for g in GENRES if "VIP" not in g]
+    kb.add(*genres)
     kb.add("🔙 Артқа")
     await m.answer("Қай категорияға видео жібересіз?", reply_markup=kb)
 
@@ -709,9 +732,11 @@ async def finish_upload(m: types.Message, state: FSMContext):
 async def admin_panel(m: types.Message):
     if m.from_user.id != ADMIN_ID:
         return
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add(
-        "➕ Видео қосу", "📩 Жіберілгендер", "💰 Монета берегу", "🌍 Барлығына монета", "📢 Рассылка", "📊 Статистика", "🔙 Артқа"
-    )
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add("➕ Видео қосу", "📩 Жіберілгендер")
+    kb.add("💰 Монета берегу", "🌍 Барлығына монета")
+    kb.add("📢 Рассылка", "📊 Статистика")
+    kb.add("🔙 Артқа")
     await m.answer("👑 <b>Админ Панель:</b>", reply_markup=kb)
 
 # 1. АДМИН: ВИДЕО ҚОСУ
@@ -719,8 +744,8 @@ async def admin_panel(m: types.Message):
 async def admin_add_video_start(m: types.Message):
     if m.from_user.id != ADMIN_ID: return
     await AdminStates.add_video_genre.set()
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    for g in GENRES: kb.add(g)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(*GENRES)
     kb.add("🔙 Артқа")
     await m.answer("Базаға қосылатын видео категориясын таңдаңыз:", reply_markup=kb)
 
@@ -939,7 +964,7 @@ async def clean_chat_ux(m: types.Message, state: FSMContext):
     current_fsm = await state.get_state()
     if current_fsm is not None: return
 
-    buttons = ["🎬 Контент", "➕ Видео жіберу", "💰 Баланс", "👥 Реферал", "💎 Монета сатып алу", "⚙️ Админ", "🔐 VIP контент", "🔙 Артқа", "😈 VIP видео 😈", "😈 VIP Видео", "✅ Аяқтау", "🎭 Анонимді чат", "🎁 Күнделікті бонус", "🎲 Кездейсоқ іздеу (Тегін)", "👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)", "🛑 Тоқтату", "👨 Жігітпін", "👩 Қызбын", "➕ Видео қосу", "📩 Жіберілгендер", "💰 Монета берегу", "🌍 Барлығына монета", "📢 Рассылка", "📊 Статистика"]
+    buttons = ["🎬 Контент", "➕ Видео жіберу", "💰 Баланс", "👥 Реферал", "💎 Монета сатып алу", "⚙️ Админ", "🔐 VIP контент", "🔙 Артқа", "😈 VIP Видео", "✅ Аяқтау", "🎭 Анонимді чат", "🎁 Күнделікті бонус", "🎲 Кездейсоқ іздеу (Тегін)", "👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)", "🛑 Тоқтату", "👨 Жігітпін", "👩 Қызбын", "➕ Видео қосу", "📩 Жіберілгендер", "💰 Монета берегу", "🌍 Барлығына монета", "📢 Рассылка", "📊 Статистика"]
     if m.text not in buttons and not m.text.startswith('/'):
         try: 
             await m.delete()
@@ -951,4 +976,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(init_db())
     loop.create_task(cleaner_loop())
-    executor.start_polling(dp, skip_updates=False) 
+    executor.start_polling(dp, skip_updates=False)

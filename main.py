@@ -149,13 +149,28 @@ async def sync_user_state(uid: int, state: FSMContext):
 
 def check_spam(text: str) -> bool:
     if not text: return False
-    text = unicodedata.normalize('NFKC', text).lower()
-    text = re.sub(r'[\u200b-\u200d\u2060\ufeff\s_\-\.\,\/\\\*\|]', '', text)
+    
+    # 1. Түпнұсқа мәтінді кіші әріптерге айналдырамыз
+    original_lower = unicodedata.normalize('NFKC', text).lower()
+    
+    # 2. БІРІНШІ сілтемелер мен логиндерді (нүктесі, таңбалары бар кезде) тексереміз
+    pattern = r"(https?://|t\.me|@\w+|www\.|instagram\.com|vk\.com|\+?[78]\d{9,10})"
+    if bool(re.search(pattern, original_lower)):
+        return True
+        
+    # 3. Қулық жасап, бос орынмен жазылған сөздерді табу үшін таңбаларды өшіреміз
+    cleaned_text = re.sub(r'[\u200b-\u200d\u2060\ufeff\s_\-\.\,\/\\\*\|]', '', original_lower)
     
     spam_words = ["inst", "instagram", "инст", "инста", "vk", "вк", "тг", "канал", 
                   "ақшабер", "теңге", "qiwi", "киви", "каспи", "kaspi", "жазыл", 
                   "подпишись", "сатыпал", "купи", "ватсап", "whatsapp", "номерім"]
-    pattern = r"(https?://|t\.me|@\w+|www\.|instagram\.com|vk\.com|\+?[78]\d{9,10})"
+    
+    # 4. Тізімдегі сөздер тазартылған мәтіннің ішінде бар-жоғын тексереміз
+    if any(word in cleaned_text for word in spam_words):
+        return True
+        
+    return False
+
     
     if any(word in text for word in spam_words) or bool(re.search(pattern, text)):
         return True

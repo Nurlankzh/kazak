@@ -3,6 +3,7 @@ import logging
 import aiosqlite
 import re
 import unicodedata
+import os # <--- ОСЫ КІТАПХАНАНЫ ҚОСУ КЕРЕК
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, types
@@ -16,11 +17,12 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.utils.exceptions import Throttled, TelegramAPIError, BotBlocked, UserDeactivated, RetryAfter
 
 # --- CONFIG ---
-API_TOKEN = "6851505012:AAHA88fc7S7FH7AfbDx1h_layrzV6OjMbxI"
-ADMIN_ID = 6303091468
-CHANNEL_URL = "https://t.me/QZQCONTENT"
-CHANNEL_ID = "@QZQCONTENT"
-BOT_USER = "@adeptiemesbot"
+# Railway-дегі Variables бөлімінен автоматты түрде алатын етіп өзгерттім
+API_TOKEN = os.getenv("BOT_TOKEN", "6851505012:AAHA88fc7S7FH7AfbDx1h_layrzV6OjMbxI")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "6303091468"))
+CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")
+BOT_USER = os.getenv("BOT_USER", "@adeptiemesbot")
 DB = "enterprise.db"
 
 GENRES_CONFIG = {

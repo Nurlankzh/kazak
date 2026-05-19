@@ -3,7 +3,7 @@ import logging
 import aiosqlite
 import re
 import unicodedata
-import os # <--- ОСЫ КІТАПХАНАНЫ ҚОСУ КЕРЕК
+import os
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, types
@@ -17,7 +17,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.utils.exceptions import Throttled, TelegramAPIError, BotBlocked, UserDeactivated, RetryAfter
 
 # --- CONFIG ---
-# Railway-дегі Variables бөлімінен автоматты түрде алатын етіп өзгерттім
 API_TOKEN = os.getenv("BOT_TOKEN", "6851505012:AAHA88fc7S7FH7AfbDx1h_layrzV6OjMbxI")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "6303091468"))
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
@@ -353,7 +352,7 @@ async def process_gender(m: types.Message):
     if m.text not in ["👨 Жігітпін", "👩 Қызбын"]: return await m.answer("Батырманы басыңыз!")
     gender = "male" if m.text == "👨 Жігітпін" else "female"
     async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE users SET gender=? WHERE id=?", (gender, m.from_user.id))
+        await db.execute("UPDATE users SET gender=? WHERE id=?", (m.from_user.id, gender))
         await db.commit()
     await m.answer("✅ Жыныс сақталды!", reply_markup=chat_menu_kb())
 

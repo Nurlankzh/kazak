@@ -1,0 +1,7 @@
+from aiogram import types
+
+async def start_cmd(message: types.Message):
+    await message.answer("Қош келдің")
+
+def register(dp):
+    dp.register_message_handler(start_cmd, commands=["start"])

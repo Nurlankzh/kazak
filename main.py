@@ -48,7 +48,6 @@ class AntiFloodMiddleware(BaseMiddleware):
         super(AntiFloodMiddleware, self).__init__()
 
     async def on_process_message(self, message: types.Message, data: dict):
-        # Админ үшін антифлуд өшірілген
         if message.from_user.id == ADMIN_ID:
             return
             
@@ -150,38 +149,35 @@ async def sync_user_state(uid: int, state: FSMContext):
 def check_spam(text: str) -> bool:
     if not text: return False
     
-    # 1. Түпнұсқа мәтінді кіші әріптерге айналдырамыз
     original_lower = unicodedata.normalize('NFKC', text).lower()
     
-    # 2. БІРІНШІ сілтемелер мен логиндерді (нүктесі, таңбалары бар кезде) тексереміз
     pattern = r"(https?://|t\.me|@\w+|www\.|instagram\.com|vk\.com|\+?[78]\d{9,10})"
     if bool(re.search(pattern, original_lower)):
         return True
         
-    # 3. Қулық жасап, бос орынмен жазылған сөздерді табу үшін таңбаларды өшіреміз
     cleaned_text = re.sub(r'[\u200b-\u200d\u2060\ufeff\s_\-\.\,\/\\\*\|]', '', original_lower)
     
     spam_words = ["inst", "instagram", "инст", "инста", "vk", "вк", "тг", "канал", 
                   "ақшабер", "теңге", "qiwi", "киви", "каспи", "kaspi", "жазыл", 
                   "подпишись", "сатыпал", "купи", "ватсап", "whatsapp", "номерім"]
     
-    # 4. Тізімдегі сөздер тазартылған мәтіннің ішінде бар-жоғын тексереміз
     if any(word in cleaned_text for word in spam_words):
         return True
         
-    return False
-
-    
-    if any(word in text for word in spam_words) or bool(re.search(pattern, text)):
-        return True
     return False
 
 async def check_sub(uid):
     if uid == ADMIN_ID: return True
     try:
         member = await bot.get_chat_member(CHANNEL_ID, uid)
-        return member.status != "left"
+        return member.status not in ["left", "kicked", "banned"]
     except Exception: return False
+
+async def require_sub(m: types.Message):
+    if not await check_sub(m.from_user.id):
+        await m.answer("⚠️ <b>Ботты қолдануды жалғастыру үшін каналға тіркеліңіз!</b>", reply_markup=sub_kb())
+        return False
+    return True
 
 async def send_no_coins_msg(m: types.Message):
     await m.answer("❌ <b>Монетаңыз бітті!</b> Жалғастыру үшін:\n\n"
@@ -337,6 +333,7 @@ async def check_sub_cb(c: types.CallbackQuery):
 # --- BALANCE & REFS ---
 @dp.message_handler(lambda m: m.text == "💰 Баланс", state="*")
 async def view_balance(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -349,6 +346,7 @@ async def view_balance(m: types.Message, state: FSMContext):
 
 @dp.message_handler(lambda m: m.text == "👥 Реферал", state="*")
 async def view_refs(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -368,6 +366,7 @@ async def view_refs(m: types.Message, state: FSMContext):
 
 @dp.message_handler(lambda m: m.text == "💎 Монета сатып алу", state="*")
 async def buy_coins(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     if await sync_user_state(m.from_user.id, state) and await state.get_state() == ChatStates.in_chat.state: return
     kb = InlineKeyboardMarkup(row_width=1).add(
         InlineKeyboardButton("💳 Kaspi / Qiwi / Басқа", callback_data="pay_other")
@@ -379,10 +378,10 @@ async def pay_mock(c: types.CallbackQuery):
     await c.message.answer("🛠 <b>Төлем:</b>\nБас админге жазыңыз: @QzqMoneta")
     await c.answer()
 
-
 # --- DAILY BONUS ---
 @dp.message_handler(lambda m: m.text == "🎁 Күнделікті бонус", state="*")
 async def daily_bonus(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -403,6 +402,7 @@ async def daily_bonus(m: types.Message, state: FSMContext):
 # --- ANONYMOUS CHAT ---
 @dp.message_handler(lambda m: m.text == "🎭 Анонимді чат", state="*")
 async def chat_entry(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -426,7 +426,6 @@ async def process_gender(m: types.Message, state: FSMContext):
     
     gender = "male" if m.text == "👨 Жігітпін" else "female"
     async with aiosqlite.connect(DB) as db:
-        # ТҮЗЕТУ ОСЫ ЖЕРДЕ: Параметрлердің орны ауысып кеткен еді (gender, uid) 
         await db.execute("UPDATE users SET gender=? WHERE id=?", (gender, m.from_user.id))
         await db.commit()
     await state.finish()
@@ -434,6 +433,7 @@ async def process_gender(m: types.Message, state: FSMContext):
 
 @dp.message_handler(lambda m: m.text in ["🎲 Кездейсоқ іздеу (Тегін)", "👩 Қыз іздеу (5 💰)", "👨 Жігіт іздеу (5 💰)"], state="*")
 async def start_matchmaking(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -605,8 +605,9 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
             return await m.answer("🔒 Медиа файлдар жіберу тек <b>VIP</b> қолданушыларға рұқсат етілген!")
 
     try:
-        if m.content_type == 'photo': await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption, has_spoiler=True)
-        elif m.content_type == 'video': await bot.send_video(partner_id, m.video.file_id, caption=m.caption, has_spoiler=True)
+        # has_spoiler алынып тасталды
+        if m.content_type == 'photo': await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption)
+        elif m.content_type == 'video': await bot.send_video(partner_id, m.video.file_id, caption=m.caption)
         else: await m.copy_to(partner_id)
     except TelegramAPIError as e:
         if "blocked" in str(e).lower() or "deactivated" in str(e).lower():
@@ -634,6 +635,7 @@ async def chat_rating_cb(c: types.CallbackQuery):
 # --- CONTENT (VIDEO) ---
 @dp.message_handler(lambda m: m.text in ["🎬 Контент", "😈 VIP Видео"], state="*")
 async def content_menu(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     if await sync_user_state(m.from_user.id, state) and await state.get_state() == ChatStates.in_chat.state: return
     if "VIP" in m.text: return await get_video_logic(m, "😈 VIP Видео", state)
     await UserStates.select_content_genre.set()
@@ -683,6 +685,7 @@ async def nxt_vd_cb(c: types.CallbackQuery, state: FSMContext):
 # --- VIP ---
 @dp.message_handler(lambda m: m.text == "🔐 VIP контент", state="*")
 async def vip_access(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -712,6 +715,7 @@ async def buy_vip_cb(c: types.CallbackQuery):
 # --- UPLOAD VIDEO ---
 @dp.message_handler(lambda m: m.text == "➕ Видео жіберу", state="*")
 async def up_start(m: types.Message, state: FSMContext):
+    if not await require_sub(m): return
     uid = m.from_user.id
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
     
@@ -805,7 +809,6 @@ async def adm_add_vf(m: types.Message, state: FSMContext):
 async def adm_rev(m: types.Message):
     if m.from_user.id != ADMIN_ID: return
     async with aiosqlite.connect(DB) as db:
-        # ТҮЗЕТУ: Барлық видеоларды бірден алып шығу
         async with db.execute("SELECT id, file_id, genre, user_id FROM submissions") as cur: 
             rows = await cur.fetchall()
             
@@ -821,7 +824,7 @@ async def adm_rev(m: types.Message):
         )
         try:
             await bot.send_video(ADMIN_ID, file_id, caption=f"ID: {user_id} | Жанр: {genre}", reply_markup=kb)
-            await asyncio.sleep(0.05) # Лимитке ұрынбау үшін аздап кідіріс
+            await asyncio.sleep(0.05)
         except Exception:
             pass
 
@@ -830,7 +833,7 @@ async def adm_dec(c: types.CallbackQuery):
     if c.from_user.id != ADMIN_ID: return
     
     parts = c.data.split('_')
-    action = parts[1] # ok немесе no
+    action = parts[1]
     sub_id = int(parts[2])
     
     async with aiosqlite.connect(DB) as db:

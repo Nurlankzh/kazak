@@ -27,7 +27,7 @@ if not API_TOKEN:
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")
-DB = "/app/data/enterprise.db"
+DB = "enterprise.db"
 
 # VIP жанрдан алынып тасталды
 GENRES_CONFIG = {

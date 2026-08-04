@@ -29,12 +29,12 @@ CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")
 DB = "/app/data/enterprise.db"
 
+# VIP жанрдан алынып тасталды
 GENRES_CONFIG = {
     "🎬 Қазақша": {"price": 5},
     "🥵 Орысша": {"price": 4},
     "🤭 Bala": {"price": 6},
-    "😍 Американша": {"price": 3},
-    "😈 VIP Видео": {"price": 22}
+    "😍 Американша": {"price": 3}
 }
 GENRES = list(GENRES_CONFIG.keys())
 
@@ -316,11 +316,10 @@ async def view_balance(m: types.Message, state: FSMContext):
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
 
     async with aiosqlite.connect(DB) as db:  
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur:   
+        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur:   
             row = await cur.fetchone()  
       
-    vip_status = f"⏳ {row[1]} дейін" if (row[1] and datetime.strptime(row[1], "%Y-%m-%d %H:%M") > datetime.now()) else "❌ Жоқ"  
-    await m.answer(f"💰 <b>Сіздің балансыңыз:</b> {row[0]} монета\n👑 <b>VIP Статус:</b> {vip_status}")
+    await m.answer(f"💰 <b>Сіздің балансыңыз:</b> {row[0]} монета")
 
 @dp.message_handler(lambda m: m.text == "👥 Реферал", state="*")
 async def view_refs(m: types.Message, state: FSMContext):
@@ -485,13 +484,13 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
 
     async with aiosqlite.connect(DB) as db:  
         async with db.execute("SELECT partner_id FROM active_chats WHERE user_id=?", (uid,)) as cur: chat = await cur.fetchone()  
-        async with db.execute("SELECT is_shadowbanned, balance, vip_until, last_search_type FROM users WHERE id=?", (uid,)) as cur: u_data = await cur.fetchone()  
+        async with db.execute("SELECT is_shadowbanned, balance, last_search_type FROM users WHERE id=?", (uid,)) as cur: u_data = await cur.fetchone()  
           
     if not chat:  
         await state.finish()  
         return await m.answer("Чат жабылған.", reply_markup=chat_menu_kb())  
           
-    partner_id, is_sb, balance, vip_until, last_search = chat[0], u_data[0], u_data[1], u_data[2], u_data[3]  
+    partner_id, is_sb, balance, last_search = chat[0], u_data[0], u_data[1], u_data[2]
       
     if m.text == "🛑 Чатты тоқтату":  
         async with aiosqlite.connect(DB) as db:  
@@ -526,8 +525,7 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
         return await start_matchmaking(m, state)  
 
     if m.text == "👁 Профиль көру":  
-        is_vip = vip_until and datetime.strptime(vip_until, "%Y-%m-%d %H:%M") > datetime.now()  
-        cost = 25 if is_vip else 50  
+        cost = 50  
           
         if balance < cost:  
             return await m.answer(f"❌ Профильді ашу құны — {cost} 💰.\nМонета жеткіліксіз!")  
@@ -582,11 +580,6 @@ async def handle_chat_messages(m: types.Message, state: FSMContext):
 
     if is_sb: return  
 
-    if m.content_type in ['photo', 'video']:  
-        is_vip = vip_until and datetime.strptime(vip_until, "%Y-%m-%d %H:%M") > datetime.now()  
-        if not is_vip:  
-            return await m.answer("🔒 Медиа файлдар жіберу тек <b>VIP</b> қолданушыларға рұқсат етілген!")  
-
     try:  
         if m.content_type == 'photo': await bot.send_photo(partner_id, m.photo[-1].file_id, caption=m.caption, has_spoiler=True)  
         elif m.content_type == 'video': await bot.send_video(partner_id, m.video.file_id, caption=m.caption, has_spoiler=True)  
@@ -617,16 +610,12 @@ async def chat_rating_cb(c: types.CallbackQuery):
 
 # --- CONTENT (VIDEO) ---
 
-@dp.message_handler(lambda m: m.text in ["🎬 Контент", "😈 VIP Видео"], state="*")
+@dp.message_handler(lambda m: m.text == "🎬 Контент", state="*")
 async def content_menu(m: types.Message, state: FSMContext):
     uid = m.from_user.id
     if not await ensure_sub(uid): return
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
 
-    if "VIP" in m.text:   
-        bot_info = await bot.get_me()  
-        return await get_video_logic(uid, "😈 VIP Видео", state, bot_info)  
-      
     await UserStates.select_content_genre.set()  
     await m.answer("Жанр таңдаңыз:", reply_markup=genres_kb())
 
@@ -641,13 +630,10 @@ async def get_video_logic(uid: int, genre: str, state: FSMContext, bot_me):
     config = GENRES_CONFIG[genre]
 
     async with aiosqlite.connect(DB) as db:  
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur:   
+        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur:   
             user = await cur.fetchone()  
               
         if not user: return  
-              
-        if "VIP" in genre and (not user[1] or datetime.strptime(user[1], "%Y-%m-%d %H:%M") < datetime.now()):  
-            return await bot.send_message(uid, "❌ Сізде VIP жазылым белсенді емес!")  
 
         if user[0] < config['price']:   
             ref_link = f"https://t.me/{bot_me.username}?start={uid}"  
@@ -704,28 +690,51 @@ async def vip_access(m: types.Message, state: FSMContext):
     if not await ensure_sub(uid): return
     if await sync_user_state(uid, state) and await state.get_state() == ChatStates.in_chat.state: return
 
-    async with aiosqlite.connect(DB) as db:  
-        async with db.execute("SELECT balance, vip_until FROM users WHERE id=?", (uid,)) as cur: u = await cur.fetchone()  
-      
-    if u[1] and datetime.strptime(u[1], "%Y-%m-%d %H:%M") > datetime.now():  
-        await m.answer(f"👑 VIP Мерзімі: {u[1]} дейін.", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("😈 VIP Видео", "🔙 Артқа"))  
-    else:  
-        await m.answer("🔐 <b>VIP (50 💰 / 24 сағат)</b>\n- Чатта медиа жіберу\n- VIP видео көру\n- Профильді 25 монетаға ашу",   
-                       reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Сатып алу (50 💰)", callback_data="buy_vip")))
+    text = (
+        "👑 <b>VIP Жабық Канал</b>\n\n"
+        "Бұл жерде ең эксклюзивті әрі шектеусіз контенттер жарияланады! 🔥\n"
+        "Кіру құны: <b>999 монета</b>"
+    )
+    kb = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("💳 Төлеу 999 монета", callback_data="buy_vip_channel")
+    )
+    await m.answer(text, reply_markup=kb)
 
-@dp.callback_query_handler(lambda c: c.data == "buy_vip", state="*")
-async def buy_vip_cb(c: types.CallbackQuery):
+@dp.callback_query_handler(lambda c: c.data == "buy_vip_channel", state="*")
+async def buy_vip_channel_cb(c: types.CallbackQuery):
     uid = c.from_user.id
     async with aiosqlite.connect(DB) as db:
-        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur: u = await cur.fetchone()
-        if u[0] < 50: return await c.answer("❌ Қаражат жеткіліксіз!", show_alert=True)
-        vt = (datetime.now() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
-        await db.execute("UPDATE users SET balance = balance - 50, vip_until = ? WHERE id=?", (vt, uid))
+        async with db.execute("SELECT balance FROM users WHERE id=?", (uid,)) as cur: 
+            u = await cur.fetchone()
+        
+        if u[0] < 999:
+            bot_info = await bot.get_me()
+            ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+            fail_text = (
+                "❌ <b>Монетаңыз жеткіліксіз!</b>\n\n"
+                f"VIP каналға кіру үшін 999 монета қажет. Сіздің балансыңызда: <b>{u[0]} 💰</b>\n\n"
+                "💡 <b>Монетаны қалай көбейтуге болады?</b>\n"
+                "1️⃣ 🎁 Күнделікті бонус алыңыз\n"
+                "2️⃣ 👥 Достарыңызды шақырыңыз (әр шақырылған дос үшін +5 💰)\n\n"
+                f"🔗 <b>Сіздің реферал сілтемеңіз:</b>\n<code>{ref_link}</code>"
+            )
+            await c.message.edit_text(fail_text)
+            return await c.answer("Монета жетпейді!", show_alert=True)
+        
+        # Төлем жасау
+        await db.execute("UPDATE users SET balance = balance - 999 WHERE id=?", (uid,))
         await db.commit()
-    await c.message.delete()
-    kb = await get_main_kb(uid)
-    await bot.send_message(uid, "👑 VIP сәтті қосылды!", reply_markup=kb)
-    await c.answer()
+
+    success_text = (
+        "🎉 <b>Құттықтаймыз! Төлем сәтті өтті!</b> 👑\n\n"
+        "Сіз енді біздің жабық VIP қауымдастығымыздың мүшесісіз. Ең ыстық және эксклюзивті контенттер сізді күтуде! 🔥\n\n"
+        "👇 Төмендегі батырманы басып, жабық каналға қосылыңыз:"
+    )
+    kb = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("🔥 VIP Каналға кіру", url="https://t.me/+V2PBTLYVBXlhMTU1")
+    )
+    await c.message.edit_text(success_text, reply_markup=kb)
+    await c.answer("Төлем қабылданды! ✅", show_alert=True)
 
 # --- UPLOAD VIDEO ---
 
@@ -747,7 +756,7 @@ async def up_start(m: types.Message, state: FSMContext):
 
     await UserStates.upload_genre.set()  
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)  
-    kb.add(*[g for g in GENRES if "VIP" not in g]).add("🔙 Артқа")  
+    kb.add(*GENRES).add("🔙 Артқа")  
     await m.answer(f"Қай категорияға? (Бүгін қалды: {10 - uploaded})", reply_markup=kb)
 
 @dp.message_handler(state=UserStates.upload_genre)
@@ -804,7 +813,7 @@ async def adm_panel(m: types.Message):
 async def adm_add_v(m: types.Message):
     if m.from_user.id != ADMIN_ID: return
     await AdminStates.add_video_genre.set()
-    await m.answer("Категория (VIP қоса):", reply_markup=genres_kb())
+    await m.answer("Категория:", reply_markup=genres_kb())
 
 @dp.message_handler(state=AdminStates.add_video_genre)
 async def adm_add_vg(m: types.Message, state: FSMContext):

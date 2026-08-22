@@ -136,7 +136,8 @@ async def finish_upload(m: types.Message, state: FSMContext):
     dupes = data.get('dupes', 0)
     
     msg = f"📊 <b>Жүктеу нәтижесі:</b>\n✅ Қабылданды: {added} видео\n❌ Қайталанған (өшірілді): {dupes} видео"
-    if await state.get_state() == "UserStates:upload_video":
+    current_state = await state.get_state()
+    if current_state and "upload_video" in current_state:
         msg += "\n\n<i>Видеолар админ мақұлдаған соң монета әкеледі.</i>"
         
     await m.answer(msg, reply_markup=main_kb(m.from_user.id))

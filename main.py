@@ -490,7 +490,7 @@ async def finish_upload(
         text += (
             "\n\n"
             "ℹ️ Видеолар админ мақұлдағаннан кейін "
-            "+12 монета беріледі."
+            "монета беріледі."
         )
 
     await state.finish()
@@ -831,7 +831,6 @@ async def user_upload_genre(
     state: FSMContext
 ):
 
-    # VIP қабылдамайды
     if message.text not in NORMAL_GENRES:
 
         await message.answer(
@@ -868,13 +867,69 @@ async def user_upload_video(
 ):
 
     data = await state.get_data()
-
     unique_id = message.video.file_unique_id
 
     async with aiosqlite.connect(DB) as db:
 
         content_exists = await (
             await db.execute(
-                """
-                SELECT id
-               
+                "SELECT id FROM content WHERE file_unique_id=?",
+                (unique_id,)
+            )
+        ).fetchone()
+
+        sub_exists = await (
+            await db.execute(
+                "SELECT id FROM submissions WHERE file_unique_id=?",
+                (unique_id,)
+            )
+        ).fetchone()
+
+        if content_exists or sub_exists:
+
+            await state.update_data(
+                dupes=data.get("dupes", 0) + 1
+            )
+
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            return
+
+        await db.execute(
+            """
+            INSERT INTO submissions(
+                file_id,
+                file_unique_id,
+                genre,
+                user_id
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                message.video.file_id,
+                unique_id,
+                data["genre"],
+                message.from_user.id
+            )
+        )
+
+        await db.commit()
+
+    await state.update_data(
+        added=data.get("added", 0) + 1
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+if __name__ == "__main__":
+    executor.start_polling(
+        dp,
+        on_startup=lambda x: init_db(),
+        skip_updates=True
+    )

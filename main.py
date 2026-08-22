@@ -21,7 +21,7 @@ CHANNEL_ID = "@QZQCONTENT"
 BOT_USER = "@yumybarbot"
 DB = "enterprise.db"
 
-# Жанрлар және бағалар (Смайликтер алынды, стандартты атаулар қойылды)
+# Жанрлар және бағалар
 GENRES_CONFIG = {
     "🎬 Қазақша": {"price": 5},
     "🎬 Орысша": {"price": 4},
@@ -84,7 +84,7 @@ async def check_sub(uid):
         member = await bot.get_chat_member(CHANNEL_ID, uid)
         return member.status != "left"
     except: 
-        return False # Қате шықса, тіркелмеген деп есептейміз
+        return False
 
 def sub_kb():
     kb = InlineKeyboardMarkup(row_width=1)
@@ -100,13 +100,13 @@ def main_kb(uid):
     if uid == ADMIN_ID: kb.add("⚙️ Админ")
     return kb
 
-# --- MIDDLEWARE (МӘЖБҮРЛІ ТІРКЕЛУДІ ТЕКСЕРУ) ---
+# --- MIDDLEWARE ---
 class MandatorySubMiddleware(BaseMiddleware):
     async def on_process_message(self, message: types.Message, data: dict):
         if message.chat.type != 'private' or message.from_user.id == ADMIN_ID:
             return
         if message.text and message.text.startswith('/start'):
-            return # Start командасын өткізіп жібереміз, ол жақта бөлек тексеріледі
+            return
             
         if not await check_sub(message.from_user.id):
             await message.answer("⚠️ <b>Кешіріңіз, сіз каналдан шығып кеткенсіз!</b>\nБотты ары қарай қолдану үшін біздің каналға міндетті түрде қайта тіркеліңіз:", reply_markup=sub_kb())
@@ -121,7 +121,6 @@ class MandatorySubMiddleware(BaseMiddleware):
             await bot.send_message(call.from_user.id, "⚠️ <b>Ботты қолдану үшін каналға тіркеліңіз:</b>", reply_markup=sub_kb())
             raise CancelHandler()
 
-# Middleware-ді қосу
 dp.middleware.setup(MandatorySubMiddleware())
 
 # --- GLOBAL BACK AND FINISH HANDLERS ---
@@ -190,7 +189,7 @@ async def add_v_genre_pick(m: types.Message, state: FSMContext):
     await state.update_data(genre=m.text, added=0, dupes=0)
     await AdminStates.add_v_file.set()
     kb = ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау").add("🔙 Артқа")
-    await m.answer(f"[{m.text}] жанрына видеоларды жібере беріңіз (100-200 видео бірден жіберуге болады):", reply_markup=kb)
+    await m.answer(f"[{m.text}] жанрына видеоларды жібере беріңіз:", reply_markup=kb)
 
 @dp.message_handler(state=AdminStates.add_v_file, content_types=['video'], user_id=ADMIN_ID)
 async def add_v_file_save(m: types.Message, state: FSMContext):
@@ -226,7 +225,7 @@ async def user_up_genre(m: types.Message, state: FSMContext):
     await state.update_data(g=m.text, added=0, dupes=0)
     await UserStates.upload_video.set()
     kb = ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Аяқтау").add("🔙 Артқа")
-    await m.answer("🎥 Видеоларды жібере беріңіз (бірнешеуін бірден салуға болады):", reply_markup=kb)
+    await m.answer("🎥 Видеоларды жібере беріңіз:", reply_markup=kb)
 
 @dp.message_handler(state=UserStates.upload_video, content_types=['video'])
 async def user_up_file(m: types.Message, state: FSMContext):
@@ -377,18 +376,10 @@ async def vip_access(m: types.Message):
     if is_vip:
         kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         kb.add("💎 VIP Контент", "🔙 Артқа")
-        await m.answer(f"💎 <b>VIP МӘЗІР</b>\n\nСіздің VIP рұқсатыңыз белсенді!\nМерзімі: {user[1]} дейін.\n\n"
-                       f"Бұл бөлімдегі видеоларды көру: 22 монета.", reply_markup=kb)
+        await m.answer(f"💎 <b>VIP МӘЗІР</b>\n\nСіздің VIP рұқсатыңыз белсенді!\nМерзімі: {user[1]} дейін.", reply_markup=kb)
     else:
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🔐 VIP Рұқсат сатып алу (50 монета)", callback_data="buy_vip"))
-        text = (
-            "🔐 <b>VIP КОНТЕНТКЕ КІРУ</b>\n\n"
-            "Ереже: VIP бөлімге кіру үшін <b>50 монета</b> төлейсіз. Рұқсат <b>24 сағатқа</b> беріледі.\n"
-            "24 сағаттан соң рұқсат автоматты түрде жойылады.\n\n"
-            "💎 VIP ішіндегі видеолар құны: <b>22 монета</b>.\n\n"
-            "Ең эксклюзивті контенттер тек осында!"
-        )
-        await m.answer(text, reply_markup=kb)
+        await m.answer("🔐 <b>VIP КОНТЕНТКЕ КІРУ</b>\n\nЕреже: VIP бөлімге кіру үшін <b>50 монета</b> төлейсіз.", reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data == "buy_vip")
 async def buy_vip_callback(c: types.CallbackQuery):
@@ -403,7 +394,7 @@ async def buy_vip_callback(c: types.CallbackQuery):
         await db.commit()
     
     await c.message.delete()
-    await bot.send_message(uid, "✅ VIP рұқсат алынды! 24 сағатқа есік ашылды.", reply_markup=main_kb(uid))
+    await bot.send_message(uid, "✅ VIP рұқсат алынды!", reply_markup=main_kb(uid))
 
 # --- CONTENT SHOW ---
 @dp.message_handler(lambda m: m.text in ["🎬 Контент", "💎 VIP Контент"])
@@ -449,7 +440,7 @@ async def get_video(m: types.Message):
             await db.commit()
             
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton("Көру 👀", callback_data="ignore"))
-            sent = await bot.send_video(uid, video[1], caption=f"💰 Көру құны: {config['price']} монета", reply_markup=kb)
+            sent = await bot.send_video(uid, video[1], caption=f"💰 Құны: {config['price']} монета", reply_markup=kb)
             asyncio.create_task(auto_delete(uid, sent.message_id, 1800))
         else:
             await m.answer("Бұл бөлімде әзірге видео жоқ.")
@@ -489,11 +480,10 @@ async def show_balance(m: types.Message):
 async def buy_moneta_info(m: types.Message):
     await m.answer("💎 Монета сатып алу үшін: @QAZAQHAuyat")
 
-
 @dp.message_handler(lambda m: m.text == "👥 Реферал")
 async def ref_info(m: types.Message):
     link = f"https://t.me/{BOT_USER.replace('@','')}/?start={m.from_user.id}"
-    await m.answer(f"👥 Реферал жүйесі:\n\nДосыңыз сіздің сілтемеңізбен кірсе: <b>+6 монета</b> аласыз.\n\n🔗 Сілтемеңізіз:\n<code>{link}</code>")
+    await m.answer(f"👥 Реферал жүйесі:\n\nДосыңыз сіздің сілтемеңізбен кірсе: <b>+6 монета</b> аласыз.\n\n🔗 Сілтемеңіз:\n<code>{link}</code>")
 
 # --- AUTO DELETE UNKNOWN TEXT ---
 @dp.message_handler(content_types=['text'], state="*")

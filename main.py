@@ -29,7 +29,7 @@ from aiogram.utils.exceptions import (
 # CONFIG
 # =========================================================
 
-API_TOKEN = os.getenv("BOT_TOKEN")
+API_TOKEN = "8007564684:AAEb_Ib26hfjcu-feJnfy2MJdeGm5scSjOQ"
 
 if not API_TOKEN:
     raise RuntimeError(

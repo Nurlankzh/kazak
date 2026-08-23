@@ -30,7 +30,12 @@ if not API_TOKEN:
         "BOT_TOKEN табылмады. Railway-дегі Variables бөліміне BOT_TOKEN қосыңыз."
     )
 
-ADMIN_ID = int(os.getenv("ADMIN_ID", 6303091468))
+# ADMIN_ID қауіпсіз алу жолы
+_admin_id_str = os.getenv("ADMIN_ID", "6303091468")
+try:
+    ADMIN_ID = int(_admin_id_str.strip())
+except (ValueError, TypeError):
+    ADMIN_ID = 6303091468 # Қате болса, автоматты түрде осы ID қойылады
 
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")

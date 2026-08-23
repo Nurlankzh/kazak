@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from datetime import datetime
 
 import aiosqlite
@@ -18,32 +17,18 @@ from aiogram.types import (
 )
 from aiogram.utils import executor
 
-
 # =========================================================
-# CONFIG (Railway Environment Variables-тен алынады)
+# CONFIG (Барлығы тікелей жазылды, Railway қате бермейді)
 # =========================================================
 
-API_TOKEN = os.getenv("BOT_TOKEN")
+# ӨЗ ТОКЕНІҢІЗДІ ТӨМЕНДЕГІ ТЫРНАҚШАНЫҢ ІШІНЕ ЖАЗЫҢЫЗ
+API_TOKEN = "8007564684:AAEb_Ib26hfjcu-feJnfy2MJdeGm5scSjOQ"
 
-if not API_TOKEN:
-    raise RuntimeError(
-        "BOT_TOKEN табылмады. Railway-дегі Variables бөліміне BOT_TOKEN қосыңыз."
-    )
-
-# ADMIN_ID қауіпсіз алу жолы
-_admin_id_str = os.getenv("ADMIN_ID", "6303091468")
-try:
-    ADMIN_ID = int(_admin_id_str.strip())
-except (ValueError, TypeError):
-    ADMIN_ID = 6303091468 # Қате болса, автоматты түрде осы ID қойылады
-
-CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/QZQCONTENT")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@QZQCONTENT")
-
-BOT_USERNAME = os.getenv("BOT_USERNAME", "yumybarbot")
-
+ADMIN_ID = 6303091468
+CHANNEL_URL = "https://t.me/QZQCONTENT"
+CHANNEL_ID = "@QZQCONTENT"
+BOT_USERNAME = "yumybarbot" 
 DB = "enterprise.db"
-
 
 # =========================================================
 # GENRES
@@ -64,7 +49,6 @@ NORMAL_GENRES = [
     if "VIP" not in g
 ]
 
-
 # =========================================================
 # LOGGING
 # =========================================================
@@ -75,14 +59,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # =========================================================
 # BOT & DP
 # =========================================================
 
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot, storage=MemoryStorage())
-
 
 # =========================================================
 # STATES
@@ -99,7 +81,6 @@ class AdminStates(StatesGroup):
 class UserStates(StatesGroup):
     upload_genre = State()
     upload_video = State()
-
 
 # =========================================================
 # DATABASE
@@ -142,7 +123,6 @@ async def init_db():
             )
         """)
 
-        # Миграциялар
         try:
             await db.execute("ALTER TABLE content ADD COLUMN file_unique_id TEXT")
         except Exception:
@@ -157,7 +137,6 @@ async def init_db():
         
         await db.commit()
     logger.info("Database дайын.")
-
 
 # =========================================================
 # USER HELPERS
@@ -189,7 +168,6 @@ async def get_user(uid: int):
         return await (await db.execute(
             "SELECT balance, last_bonus, last_active, vip_until FROM users WHERE id=?", (uid,)
         )).fetchone()
-
 
 # =========================================================
 # KEYBOARDS
@@ -226,7 +204,6 @@ def genre_kb(include_vip=True):
     kb.add("🔙 Артқа")
     return kb
 
-
 # =========================================================
 # MIDDLEWARE
 # =========================================================
@@ -261,7 +238,6 @@ class MandatorySubMiddleware(BaseMiddleware):
 
 dp.middleware.setup(MandatorySubMiddleware())
 
-
 # =========================================================
 # GLOBAL BACK & FINISH
 # =========================================================
@@ -285,7 +261,6 @@ async def finish_upload(message: types.Message, state: FSMContext):
     await state.finish()
     await message.answer(text, reply_markup=main_kb(message.from_user.id))
 
-
 # =========================================================
 # COMMANDS
 # =========================================================
@@ -305,7 +280,6 @@ async def start(message: types.Message, state: FSMContext):
                 VALUES (?, ?, ?, ?, ?)
             """, (uid, 10, now, now, "None"))
             
-            # Реферал системасы
             if ref.isdigit():
                 ref_id = int(ref)
                 if ref_id != uid:
@@ -345,7 +319,6 @@ async def check_subscription_callback(call: types.CallbackQuery):
         await call.answer()
     else:
         await call.answer("❌ Сіз әлі каналға тіркелмедіңіз!", show_alert=True)
-
 
 # =========================================================
 # USER FUNCTION HANDLERS
@@ -410,7 +383,6 @@ async def user_upload_video(message: types.Message, state: FSMContext):
         await db.commit()
     await state.update_data(added=data.get("added", 0) + 1)
 
-
 # =========================================================
 # ADMIN PANEL
 # =========================================================
@@ -474,7 +446,6 @@ async def add_video_file(message: types.Message, state: FSMContext):
         )
         await db.commit()
     await state.update_data(added=data.get("added", 0) + 1)
-
 
 # =========================================================
 # MAIN

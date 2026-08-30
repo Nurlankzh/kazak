@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 
 import aiosqlite
@@ -27,24 +28,29 @@ CHANNEL_URL = "https://t.me/QZQCONTENT"
 CHANNEL_ID = "@QZQCONTENT"
 BOT_USERNAME = "yumybarbot" 
 
-# Railway-де деректер өшіп қалмауы үшін Volume қосқан болсаңыз, 
-# мына жерді "/data/enterprise.db" деп өзгертесіз. Әзірге осылай тұра берсін.
+# Railway-де деректер өшіп қалмауы үшін Volume қоссаңыз: "/data/enterprise.db" деп өзгертіңіз.
 DB = "enterprise.db"
 
 # =========================================================
-# GENRES
+# GENRES & CODES (Инлайн кнопкаларға сыю үшін қысқа кодтар)
 # =========================================================
 
 GENRES_CONFIG = {
-    "🎬 Қазақша": {"price": 5},
-    "🎬 Орысша": {"price": 4},
-    "🧸 Балаларға": {"price": 6},
-    "🎬 Шетелдік": {"price": 3},
-    "💎 VIP Контент": {"price": 22}
+    "🎬 Қазақша": {"price": 5, "code": "kz"},
+    "🎬 Орысша": {"price": 4, "code": "ru"},
+    "🧸 Балаларға": {"price": 6, "code": "kids"},
+    "🎬 Шетелдік": {"price": 3, "code": "eng"},
+    "💎 VIP Контент": {"price": 22, "code": "vip"}
 }
 
 GENRES = list(GENRES_CONFIG.keys())
 NORMAL_GENRES = [g for g in GENRES if "VIP" not in g]
+
+def get_genre_by_code(code: str):
+    for k, v in GENRES_CONFIG.items():
+        if v["code"] == code:
+            return k
+    return None
 
 # =========================================================
 # LOGGING
@@ -95,7 +101,9 @@ async def init_db():
                 last_bonus TEXT,
                 last_active TEXT,
                 vip_until TEXT,
-                task_completed INTEGER DEFAULT 0
+                task_completed INTEGER DEFAULT 0,
+                daily_uploads INTEGER DEFAULT 0,
+                last_upload_date TEXT DEFAULT ''
             )
         """)
         await db.execute("""
@@ -130,43 +138,50 @@ async def init_db():
             )
         """)
 
-        # Default task settings
         await db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('task_url', 'https://t.me/+NgRT5h5xpYFkZDEy')")
-        await db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('task_chat_id', '-1000000000000')") # Админ мұны өзгертеді
+        await db.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('task_chat_id', '-1000000000000')")
 
-        # База жаңартулары кезіндегі қателердің алдын алу
-        try:
-            await db.execute("ALTER TABLE content ADD COLUMN file_unique_id TEXT")
-        except: pass
-        try:
-            await db.execute("ALTER TABLE submissions ADD COLUMN file_unique_id TEXT")
-        except: pass
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN task_completed INTEGER DEFAULT 0")
-        except: pass
+        # База жаңартулары
+        for col in [
+            ("content", "file_unique_id", "TEXT"),
+            ("submissions", "file_unique_id", "TEXT"),
+            ("users", "task_completed", "INTEGER DEFAULT 0"),
+            ("users", "daily_uploads", "INTEGER DEFAULT 0"),
+            ("users", "last_upload_date", "TEXT DEFAULT ''")
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE {col[0]} ADD COLUMN {col[1]} {col[2]}")
+            except: pass
 
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_unique ON content(file_unique_id)")
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_unique ON submissions(file_unique_id)")
         
         await db.commit()
-    logger.info("Database дайын.")
+    logger.info("База дайын.")
 
 # =========================================================
 # USER HELPERS
 # =========================================================
 
-async def ensure_user(uid: int):
-    now = datetime.now().isoformat()
+async def user_exists(uid: int) -> bool:
     async with aiosqlite.connect(DB) as db:
         user = await (await db.execute("SELECT id FROM users WHERE id=?", (uid,))).fetchone()
-        if not user:
-            # last_bonus бастапқыда ескі уақыт болады, адам бірден бонус ала алуы үшін
-            old_time = (datetime.now() - timedelta(days=2)).isoformat()
-            await db.execute("""
-                INSERT INTO users(id, balance, last_bonus, last_active, vip_until, task_completed)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (uid, 10, old_time, now, "None", 0))
-            await db.commit()
+        return bool(user)
+
+async def ensure_user(uid: int) -> bool:
+    """Пайдаланушыны тіркейді. Жаңа болса True, бұрыннан болса False қайтарады."""
+    now = datetime.now().isoformat()
+    if await user_exists(uid):
+        return False
+    
+    async with aiosqlite.connect(DB) as db:
+        old_time = (datetime.now() - timedelta(days=2)).isoformat()
+        await db.execute("""
+            INSERT INTO users(id, balance, last_bonus, last_active, vip_until, task_completed, daily_uploads, last_upload_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (uid, 10, old_time, now, "None", 0, 0, ""))
+        await db.commit()
+    return True
 
 async def check_sub(uid: int) -> bool:
     if uid == ADMIN_ID:
@@ -180,7 +195,7 @@ async def check_sub(uid: int) -> bool:
 async def get_user(uid: int):
     async with aiosqlite.connect(DB) as db:
         return await (await db.execute(
-            "SELECT balance, last_bonus, task_completed FROM users WHERE id=?", (uid,)
+            "SELECT balance, last_bonus, task_completed, daily_uploads, last_upload_date FROM users WHERE id=?", (uid,)
         )).fetchone()
 
 async def get_setting(key: str):
@@ -205,7 +220,7 @@ def main_kb(uid: int):
     kb.add("🎬 Контент", "➕ Видео жіберу")
     kb.add("💰 Баланс", "👥 Реферал")
     kb.add("🎁 Тегін монета", "📋 Задания")
-    kb.add("💎 Монета сатып алу") # VIP контент кнопкасы алынып тасталды
+    kb.add("💎 Монета сатып алу") 
     if uid == ADMIN_ID:
         kb.add("⚙️ Админ")
     return kb
@@ -225,21 +240,49 @@ def genre_kb(include_vip=True):
     return kb
 
 def task_kb(url: str):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🚀 Каналға қосылу (Заявка тастау)", url=url))
-    return kb
+    return InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🚀 Каналға қосылу", url=url))
 
 def submission_kb(sub_id: int):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
+    return InlineKeyboardMarkup(row_width=2).add(
         InlineKeyboardButton("✅ Қабылдау", callback_data=f"sub_app_{sub_id}"),
         InlineKeyboardButton("❌ Қайтару", callback_data=f"sub_rej_{sub_id}")
     )
-    return kb
+
+def next_video_kb(genre_code: str):
+    return InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("⏭ Келесі видео", callback_data=f"next_{genre_code}")
+    )
 
 # =========================================================
-# MIDDLEWARE
+# MIDDLEWARES
 # =========================================================
+
+class AntiSpamMiddleware(BaseMiddleware):
+    """Накрутка мен спамға қарсы жүйе"""
+    def __init__(self, limit=1.0):
+        self.limit = limit
+        self.users = {}
+        super().__init__()
+
+    async def on_process_message(self, message: types.Message, data: dict):
+        uid = message.from_user.id
+        now = time.time()
+        last_time = self.users.get(uid, 0)
+        
+        if now - last_time < self.limit:
+            raise CancelHandler()
+        self.users[uid] = now
+
+    async def on_process_callback_query(self, call: types.CallbackQuery, data: dict):
+        uid = call.from_user.id
+        now = time.time()
+        last_time = self.users.get(uid, 0)
+        
+        if now - last_time < self.limit:
+            await call.answer("Асықпаңыз...", show_alert=False)
+            raise CancelHandler()
+        self.users[uid] = now
+
 
 class MandatorySubMiddleware(BaseMiddleware):
     async def on_process_message(self, message: types.Message, data: dict):
@@ -261,6 +304,7 @@ class MandatorySubMiddleware(BaseMiddleware):
             await call.answer("❌ Алдымен каналға тіркеліңіз!", show_alert=True)
             raise CancelHandler()
 
+dp.middleware.setup(AntiSpamMiddleware(limit=1.0))
 dp.middleware.setup(MandatorySubMiddleware())
 
 # =========================================================
@@ -296,16 +340,19 @@ async def start(message: types.Message, state: FSMContext):
     uid = message.from_user.id
     ref = message.get_args().strip()
     
-    await ensure_user(uid)
+    is_new = await ensure_user(uid)
 
-    async with aiosqlite.connect(DB) as db:
-        if ref.isdigit():
-            ref_id = int(ref)
-            if ref_id != uid:
-                # Бір адам өзін-өзі шақыра алмайды
+    if is_new and ref.isdigit():
+        ref_id = int(ref)
+        if ref_id != uid:
+            async with aiosqlite.connect(DB) as db:
                 ref_user = await (await db.execute("SELECT id FROM users WHERE id=?", (ref_id,))).fetchone()
                 if ref_user:
-                    pass
+                    await db.execute("UPDATE users SET balance = balance + 6 WHERE id=?", (ref_id,))
+                    await db.commit()
+                    try:
+                        await bot.send_message(ref_id, "👥 Сіздің сілтемеңізбен жаңа адам тіркелді!\n🎁 <b>+6 монета</b> берілді.")
+                    except: pass
 
     if not await check_sub(uid):
         await message.answer(
@@ -314,10 +361,7 @@ async def start(message: types.Message, state: FSMContext):
         )
         return
 
-    await message.answer(
-        "✅ <b>Қош келдіңіз!</b>\n\nТөмендегі мәзірден қажетті бөлімді таңдаңыз.",
-        reply_markup=main_kb(uid)
-    )
+    await message.answer("✅ <b>Қош келдіңіз!</b>\n\nТөмендегі мәзірден қажетті бөлімді таңдаңыз.", reply_markup=main_kb(uid))
 
 @dp.callback_query_handler(lambda c: c.data == "check_subscription")
 async def check_subscription_callback(call: types.CallbackQuery):
@@ -334,17 +378,14 @@ async def check_subscription_callback(call: types.CallbackQuery):
     else:
         await call.answer("❌ Сіз әлі каналға тіркелмедіңіз!", show_alert=True)
 
-# АВТО-ҚАБЫЛДАУ ЖӘНЕ МОНЕТА БЕРУ
 @dp.chat_join_request_handler()
 async def auto_approve_join(update: types.ChatJoinRequest):
     user_id = update.from_user.id
     chat_id = update.chat.id
-    
     task_chat_id = await get_setting('task_chat_id')
     
     if str(chat_id) == str(task_chat_id):
         await update.approve()
-        
         await ensure_user(user_id)
         async with aiosqlite.connect(DB) as db:
             user = await (await db.execute("SELECT task_completed FROM users WHERE id=?", (user_id,))).fetchone()
@@ -354,21 +395,20 @@ async def auto_approve_join(update: types.ChatJoinRequest):
                 try:
                     await bot.send_message(
                         user_id, 
-                        "🎉 <b>Құттықтаймыз! Задание сәтті орындалды!</b>\n\nСіздің шотыңызға <b>15 монета</b> берілді. Ботты пайдалана беріңіз!",
+                        "🎉 <b>Құттықтаймыз! Задание сәтті орындалды!</b>\n\nСіздің шотыңызға <b>15 монета</b> берілді.",
                         reply_markup=main_kb(user_id)
                     )
                 except: pass
 
 # =========================================================
-# USER FUNCTIONS
+# USER FUNCTIONS & VIDEO LOGIC
 # =========================================================
 
 @dp.message_handler(lambda m: m.text == "💰 Баланс")
 async def user_balance(message: types.Message):
     user_data = await get_user(message.from_user.id)
     if user_data:
-        balance = user_data[0]
-        await message.answer(f"💰 Сіздің қазіргі балансыңыз: <b>{balance}</b> монета.")
+        await message.answer(f"💰 Сіздің қазіргі балансыңыз: <b>{user_data[0]}</b> монета.")
 
 @dp.message_handler(lambda m: m.text == "👥 Реферал")
 async def user_referral(message: types.Message):
@@ -389,10 +429,10 @@ async def buy_coins(message: types.Message):
         "👑 500 монета — 3 500 ₸ (≈ 560 ₽уб)\n\n"
         "БАЙЛАРҒА \n"
         "Для БОГАТЫХ \n\n"
-        "🥶600 монета - 4500 Т (750₽уб) + ДЕТСКИ канал тегін \n"
+        "🥶 600 монета - 4500 ₸ (750 ₽уб) + ДЕТСКИ канал тегін \n"
         "🚀 999 монета — 5 000 ₸ (≈ 800 ₽уб) + VIP БОНУС 🎁 2 канал тегін \n"
-        "(Канал випка) \n"
-        "@QAZAQHAuyat жазыңыз"
+        "(Канал випка) \n\n"
+        "📩 <b>Сатып алу үшін:</b> @QAZAQHAuyat жазыңыз"
     )
     await message.answer(text)
 
@@ -402,9 +442,8 @@ async def free_coins(message: types.Message):
     user_data = await get_user(uid)
     
     if user_data:
-        last_bonus_str = user_data[1]
         try:
-            last_bonus_time = datetime.fromisoformat(last_bonus_str)
+            last_bonus_time = datetime.fromisoformat(user_data[1])
         except:
             last_bonus_time = datetime.now() - timedelta(days=2)
             
@@ -415,27 +454,78 @@ async def free_coins(message: types.Message):
             async with aiosqlite.connect(DB) as db:
                 await db.execute("UPDATE users SET balance = balance + 10, last_bonus = ? WHERE id=?", (now.isoformat(), uid))
                 await db.commit()
-            await message.answer("🎉 <b>Құттықтаймыз!</b> Сіз күнделікті <b>10 тегін монета</b> алдыңыз!\nКелесі монетаны 24 сағаттан кейін ала аласыз.")
+            await message.answer("🎉 <b>Құттықтаймыз!</b> Сіз күнделікті <b>10 тегін монета</b> алдыңыз!")
         else:
             time_left = timedelta(hours=24) - diff
             hours, remainder = divmod(time_left.seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
-            await message.answer(f"⏳ Сіз бүгінгі бонусты алып қойғансыз.\nКелесі бонусқа дейін: <b>{hours} сағат {minutes} минут</b> қалды.")
+            await message.answer(f"⏳ Бүгінгі бонусты алып қойғансыз.\nКелесі бонусқа дейін: <b>{hours} сағат {minutes} минут</b> қалды.")
 
 @dp.message_handler(lambda m: m.text == "📋 Задания")
 async def tasks_menu(message: types.Message):
     uid = message.from_user.id
     user_data = await get_user(uid)
     if user_data and user_data[2] == 1:
-        await message.answer("✅ Сіз заданияны орындап қойғансыз. Жаңа заданиялар әзірше жоқ.")
+        await message.answer("✅ Сіз заданияны орындап қойғансыз.")
         return
 
     task_url = await get_setting('task_url')
-    text = (
-        "📋 <b>Арнайы тапсырма!</b>\n\n"
-        "Төмендегі каналға заявка тастаңыз. Бот сізді автоматты түрде қабылдап, шотыңызға бірден <b>15 монета</b> түседі!"
+    await message.answer(
+        "📋 <b>Арнайы тапсырма!</b>\n\nТөмендегі каналға заявка тастаңыз да <b>15 монета</b> алыңыз!",
+        reply_markup=task_kb(task_url)
     )
-    await message.answer(text, reply_markup=task_kb(task_url))
+
+# --- ВИДЕО ЖІБЕРУ ЖӘНЕ "КЕЛЕСІ" ЛОГИКАСЫ ---
+
+async def process_send_video(uid: int, genre: str, bot_obj: Bot):
+    price = GENRES_CONFIG[genre]["price"]
+    genre_code = GENRES_CONFIG[genre]["code"]
+    
+    async with aiosqlite.connect(DB) as db:
+        user = await (await db.execute("SELECT balance FROM users WHERE id=?", (uid,))).fetchone()
+        balance = user[0] if user else 0
+        
+        if balance < price:
+            bot_info = await bot_obj.get_me()
+            ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+            text = (
+                f"❌ <b>Монета жеткіліксіз!</b>\n\n"
+                f"Бұл видеоны көру үшін <b>{price}</b> монета қажет. Сізде: <b>{balance}</b> монета.\n\n"
+                f"💡 <b>Монетаны қалай алуға болады?</b>\n"
+                f"1️⃣ <b>Дос шақыру:</b> Мына сілтемені достарыңызға жіберіңіз. Әр кірген адам үшін <b>+6 монета</b> аласыз:\n<code>{ref_link}</code>\n\n"
+                f"2️⃣ <b>Сатып алу:</b> @QAZAQHAuyat админге жазып монета немесе VIP сатып алыңыз."
+            )
+            await bot_obj.send_message(uid, text)
+            return
+
+        row = await (await db.execute("""
+            SELECT id, file_id FROM content 
+            WHERE genre=? AND id NOT IN (SELECT content_id FROM history WHERE user_id=?)
+            ORDER BY RANDOM() LIMIT 1
+        """, (genre, uid))).fetchone()
+
+        if not row:
+            await bot_obj.send_message(uid, "😔 Бұл жанрда сіз көрмеген жаңа видеолар таусылды.")
+            return
+        
+        cid, file_id = row
+        new_balance = balance - price
+        await db.execute("UPDATE users SET balance = ? WHERE id=?", (new_balance, uid))
+        await db.execute("INSERT OR IGNORE INTO history(user_id, content_id) VALUES (?, ?)", (uid, cid))
+        await db.commit()
+
+    caption = (
+        f"🎬 Жанр: <b>{genre}</b>\n"
+        f"💸 Ұсталды: <b>{price}</b> монета\n"
+        f"💰 Қалдық: <b>{new_balance}</b> монета"
+    )
+    
+    await bot_obj.send_video(
+        chat_id=uid,
+        video=file_id,
+        caption=caption,
+        reply_markup=next_video_kb(genre_code)
+    )
 
 @dp.message_handler(lambda m: m.text in ["🎬 Контент", "🔐 VIP контент"])
 async def select_content_genre(message: types.Message):
@@ -450,48 +540,27 @@ async def view_content_by_genre(message: types.Message, state: FSMContext):
         await message.answer("❌ Тізімнен таңдаңыз.")
         return
     
-    genre = message.text
-    price = GENRES_CONFIG[genre]["price"]
-    uid = message.from_user.id
-    
-    async with aiosqlite.connect(DB) as db:
-        user = await (await db.execute("SELECT balance FROM users WHERE id=?", (uid,))).fetchone()
-        if not user or user[0] < price:
-            await state.finish()
-            await message.answer(
-                f"❌ <b>Монета жеткіліксіз!</b>\n\nБұл жанрды көру үшін <b>{price}</b> монета керек.\nСізде: <b>{user[0] if user else 0}</b> монета.",
-                reply_markup=main_kb(uid)
-            )
-            return
-        
-        row = await (await db.execute("""
-            SELECT id, file_id FROM content 
-            WHERE genre=? AND id NOT IN (SELECT content_id FROM history WHERE user_id=?)
-            ORDER BY RANDOM() LIMIT 1
-        """, (genre, uid))).fetchone()
-
-        if not row:
-            await state.finish()
-            await message.answer("😔 Бұл жанрда сіз көрмеген жаңа видеолар таусылды.", reply_markup=main_kb(uid))
-            return
-        
-        cid, file_id = row
-        await db.execute("UPDATE users SET balance = balance - ? WHERE id=?", (price, uid))
-        await db.execute("INSERT OR IGNORE INTO history(user_id, content_id) VALUES (?, ?)", (uid, cid))
-        await db.commit()
-
     await state.finish()
-    await bot.send_video(
-        chat_id=uid,
-        video=file_id,
-        caption=f"🎬 Жанр: <b>{genre}</b>\n💸 Ұсталды: <b>{price}</b> монета",
-        reply_markup=main_kb(uid)
-    )
+    await process_send_video(message.from_user.id, message.text, bot)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("next_"))
+async def next_video_callback(call: types.CallbackQuery):
+    await call.answer() # Батырманың жүктелуін тоқтату
+    genre_code = call.data.split("_")[1]
+    genre = get_genre_by_code(genre_code)
+    
+    if not genre:
+        await call.message.answer("❌ Қателік кетті. Басты мәзір арқылы жанрды қайта таңдаңыз.")
+        return
+    
+    await process_send_video(call.from_user.id, genre, bot)
+
+# --- ПАЙДАЛАНУШЫ ВИДЕО ЖҮКТЕУІ ЖӘНЕ ЛИМИТ ---
 
 @dp.message_handler(lambda m: m.text == "➕ Видео жіберу")
 async def user_upload_start(message: types.Message):
     await UserStates.upload_genre.set()
-    await message.answer("📂 <b>Қай жанрға видео жібересіз?</b>", reply_markup=genre_kb(include_vip=False))
+    await message.answer("📂 <b>Қай жанрға видео жібересіз?</b>\n\n(Күніне 15 видео жіберу лимиті бар)", reply_markup=genre_kb(include_vip=False))
 
 @dp.message_handler(state=UserStates.upload_genre)
 async def user_upload_genre(message: types.Message, state: FSMContext):
@@ -501,28 +570,45 @@ async def user_upload_genre(message: types.Message, state: FSMContext):
     await state.update_data(genre=message.text, added=0, dupes=0)
     await UserStates.upload_video.set()
     await message.answer(
-        f"📂 Жанр: <b>{message.text}</b>\n\n🎥 Видеоларды жібере беріңіз.\nБірнеше видео жіберуге болады.\n\nВидеолар админ тексеруіне түседі.",
+        f"📂 Жанр: <b>{message.text}</b>\n\n🎥 Видеоларды жібере беріңіз.\nБолған соң «✅ Аяқтау» түймесін басыңыз.",
         reply_markup=finish_kb()
     )
 
 @dp.message_handler(state=UserStates.upload_video, content_types=["video"])
 async def user_upload_video(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    unique_id = message.video.file_unique_id
+    uid = message.from_user.id
+    today = datetime.now().strftime("%Y-%m-%d")
+    
     async with aiosqlite.connect(DB) as db:
+        user = await (await db.execute("SELECT daily_uploads, last_upload_date FROM users WHERE id=?", (uid,))).fetchone()
+        daily_uploads, last_upload_date = user if user else (0, "")
+        
+        if last_upload_date != today:
+            daily_uploads = 0
+            
+        if daily_uploads >= 15 and uid != ADMIN_ID:
+            await message.answer("❌ <b>Лимит жетті!</b>\nКүніне тек 15 видео жібере аласыз. Ертең қайта байқап көріңіз.")
+            return
+
+        data = await state.get_data()
+        unique_id = message.video.file_unique_id
         content_exists = await (await db.execute("SELECT id FROM content WHERE file_unique_id=?", (unique_id,))).fetchone()
         sub_exists = await (await db.execute("SELECT id FROM submissions WHERE file_unique_id=?", (unique_id,))).fetchone()
+        
         if content_exists or sub_exists:
             await state.update_data(dupes=data.get("dupes", 0) + 1)
             try:
                 await message.delete()
             except: pass
             return
+            
         await db.execute(
             "INSERT INTO submissions(file_id, file_unique_id, genre, user_id) VALUES (?, ?, ?, ?)",
-            (message.video.file_id, unique_id, data["genre"], message.from_user.id)
+            (message.video.file_id, unique_id, data["genre"], uid)
         )
+        await db.execute("UPDATE users SET daily_uploads = ?, last_upload_date = ? WHERE id=?", (daily_uploads + 1, today, uid))
         await db.commit()
+        
     await state.update_data(added=data.get("added", 0) + 1)
 
 # =========================================================
@@ -554,7 +640,7 @@ async def admin_stats(message: types.Message):
 @dp.message_handler(lambda m: m.text == "⚙️ Задания баптау", user_id=ADMIN_ID)
 async def admin_task_setup(message: types.Message):
     await AdminStates.set_task_url.set()
-    await message.answer("🔗 Задания болатын каналдың **Шақыру сілтемесін (Invite Link)** жіберіңіз\n(Мысалы: https://t.me/+NgRT...):", reply_markup=back_kb())
+    await message.answer("🔗 Задания болатын каналдың **Шақыру сілтемесін (Invite Link)** жіберіңіз:", reply_markup=back_kb())
 
 @dp.message_handler(state=AdminStates.set_task_url, user_id=ADMIN_ID)
 async def admin_set_task_url(message: types.Message, state: FSMContext):
@@ -563,17 +649,17 @@ async def admin_set_task_url(message: types.Message, state: FSMContext):
         await db.execute("UPDATE settings SET value = ? WHERE key = 'task_url'", (url,))
         await db.commit()
     await AdminStates.set_task_id.set()
-    await message.answer("✅ Сілтеме сақталды.\n\nЕнді осы каналдың **ID нөмірін** жазыңыз.\n(Мысалы: -1001234567890). Бұл бот адамды авто-қабылдай алуы үшін керек:", reply_markup=back_kb())
+    await message.answer("✅ Сілтеме сақталды.\n\nЕнді осы каналдың **ID нөмірін** жазыңыз (Мыс: -100123...):", reply_markup=back_kb())
 
 @dp.message_handler(state=AdminStates.set_task_id, user_id=ADMIN_ID)
 async def admin_set_task_id(message: types.Message, state: FSMContext):
     chat_id = message.text
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE settings SET value = ? WHERE key = 'task_chat_id'", (chat_id,))
-        await db.execute("UPDATE users SET task_completed = 0") # Жаңа задания қосқанда барлық адамға қайта ашылады
+        await db.execute("UPDATE users SET task_completed = 0")
         await db.commit()
     await state.finish()
-    await message.answer(f"✅ Бапталды! ID: {chat_id}.\n\nБарлық қолданушылар үшін Задания жаңартылды (бәрі қайта орындай алады).\n\n⚠️ **Маңызды:** Бот осы {chat_id} каналында міндетті түрде **АДМИН** болуы керек және «Заявкаларды қабылдау» (Add Users) құқығы қосулы болуы тиіс!", reply_markup=main_kb(ADMIN_ID))
+    await message.answer("✅ Бапталды! Бәріне задания жаңартылды.", reply_markup=main_kb(ADMIN_ID))
 
 @dp.message_handler(lambda m: m.text == "📩 Жіберілгендер", user_id=ADMIN_ID)
 async def admin_submissions(message: types.Message):
@@ -586,7 +672,7 @@ async def admin_submissions(message: types.Message):
     await bot.send_video(
         chat_id=ADMIN_ID,
         video=file_id,
-        caption=f"📩 <b>Жаңа өтінім #{sub_id}</b>\n\n👤 Иесі: <code>{uid}</code>\n📂 Жанр: <b>{genre}</b>",
+        caption=f"📩 <b>Жаңа өтінім #{sub_id}</b>\n👤 Иесі: <code>{uid}</code>\n📂 Жанр: <b>{genre}</b>",
         reply_markup=submission_kb(sub_id)
     )
 
@@ -601,10 +687,7 @@ async def process_submission(call: types.CallbackQuery):
         
         file_id, unique_id, genre, uid = sub
         if action == "app":
-            await db.execute(
-                "INSERT INTO content(file_id, file_unique_id, type, genre) VALUES (?, ?, ?, ?)",
-                (file_id, unique_id, "video", genre)
-            )
+            await db.execute("INSERT INTO content(file_id, file_unique_id, type, genre) VALUES (?, ?, ?, ?)", (file_id, unique_id, "video", genre))
             await db.execute("UPDATE users SET balance = balance + 5 WHERE id=?", (uid,))
             try:
                 await bot.send_message(uid, f"🎉 <b>Видеоңыз қабылданды!</b>\nЖанр: {genre}\n🎁 <b>+5 монета</b> берілді.")
@@ -623,64 +706,53 @@ async def process_submission(call: types.CallbackQuery):
 @dp.message_handler(lambda m: m.text == "💰 Монета беру", user_id=ADMIN_ID)
 async def admin_give_start(message: types.Message):
     await AdminStates.give_id.set()
-    await message.answer("👤 Монета берілетін қолданушының **ID нөмірін** жазыңыз:", reply_markup=back_kb())
+    await message.answer("👤 ID нөмірін жазыңыз:", reply_markup=back_kb())
 
 @dp.message_handler(state=AdminStates.give_id, user_id=ADMIN_ID)
 async def admin_give_id(message: types.Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("❌ Тек сан түрінде кіргізіңіз.")
-        return
+    if not message.text.isdigit(): return await message.answer("❌ Тек сан.")
     await state.update_data(target_id=int(message.text))
     await AdminStates.give_amount.set()
-    await message.answer("💰 Қанша монета қосқыңыз келеді? (Санмен жазыңыз):")
+    await message.answer("💰 Қанша монета қосқыңыз келеді?")
 
 @dp.message_handler(state=AdminStates.give_amount, user_id=ADMIN_ID)
 async def admin_give_amount(message: types.Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("❌ Тек сан түрінде кіргізіңіз.")
-        return
+    if not message.text.isdigit(): return await message.answer("❌ Тек сан.")
     data = await state.get_data()
-    target_id = data["target_id"]
-    amount = int(message.text)
+    target_id, amount = data["target_id"], int(message.text)
     
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, target_id))
         await db.commit()
-        
-    try:
-        await bot.send_message(target_id, f"🎁 Админ сізге <b>+{amount} монета</b> қосты!")
+    try: await bot.send_message(target_id, f"🎁 Админ сізге <b>+{amount} монета</b> қосты!")
     except: pass
-        
     await state.finish()
-    await message.answer(f"✅ ID <code>{target_id}</code> қолданушыға <b>+{amount} монета</b> берілді.", reply_markup=main_kb(ADMIN_ID))
+    await message.answer(f"✅ Берілді.", reply_markup=main_kb(ADMIN_ID))
 
 @dp.message_handler(lambda m: m.text == "🌍 Барлығына монета", user_id=ADMIN_ID)
 async def admin_give_all_start(message: types.Message):
     await AdminStates.give_all_amount.set()
-    await message.answer("🌍 Барлық қолданушыларға қосқыңыз келетін монета санын жазыңыз:", reply_markup=back_kb())
+    await message.answer("🌍 Қанша монета бересіз?", reply_markup=back_kb())
 
 @dp.message_handler(state=AdminStates.give_all_amount, user_id=ADMIN_ID)
 async def admin_give_all_amount(message: types.Message, state: FSMContext):
-    if not message.text.isdigit():
-        await message.answer("❌ Тек сан түрінде кіргізіңіз.")
-        return
+    if not message.text.isdigit(): return await message.answer("❌ Тек сан.")
     amount = int(message.text)
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET balance = balance + ?", (amount,))
         await db.commit()
     await state.finish()
-    await message.answer(f"✅ Барлық қолданушыларға <b>+{amount} монета</b> берілді!", reply_markup=main_kb(ADMIN_ID))
+    await message.answer(f"✅ Барлығына <b>+{amount}</b> монета берілді!", reply_markup=main_kb(ADMIN_ID))
 
 @dp.message_handler(lambda m: m.text == "📢 Рассылка", user_id=ADMIN_ID)
 async def admin_broadcast_start(message: types.Message):
     await AdminStates.broadcast_msg.set()
-    await message.answer("📢 Жіберілетін хабарламаны жазыңыз (мәтін/сурет/видео):", reply_markup=back_kb())
+    await message.answer("📢 Хабарламаны жазыңыз:", reply_markup=back_kb())
 
 @dp.message_handler(state=AdminStates.broadcast_msg, content_types=types.ContentTypes.ANY, user_id=ADMIN_ID)
 async def admin_broadcast_send(message: types.Message, state: FSMContext):
     async with aiosqlite.connect(DB) as db:
         users = await (await db.execute("SELECT id FROM users")).fetchall()
-    
     count = 0
     for u in users:
         try:
@@ -688,26 +760,20 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
             count += 1
             await asyncio.sleep(0.05)
         except: pass
-            
     await state.finish()
-    await message.answer(f"✅ Хабарлама <b>{count}</b> қолданушыға таратылды!", reply_markup=main_kb(ADMIN_ID))
+    await message.answer(f"✅ <b>{count}</b> адамға жіберілді!", reply_markup=main_kb(ADMIN_ID))
 
 @dp.message_handler(lambda m: m.text == "➕ Видео қосу", user_id=ADMIN_ID)
 async def add_video_start(message: types.Message):
     await AdminStates.add_v_genre.set()
-    await message.answer("📂 <b>Видео жанрын таңдаңыз:</b>", reply_markup=genre_kb(include_vip=True))
+    await message.answer("📂 <b>Жанрды таңдаңыз:</b>", reply_markup=genre_kb(include_vip=True))
 
 @dp.message_handler(state=AdminStates.add_v_genre, user_id=ADMIN_ID)
 async def add_video_genre(message: types.Message, state: FSMContext):
-    if message.text not in GENRES:
-        await message.answer("❌ Тізімнен жанр таңдаңыз.")
-        return
+    if message.text not in GENRES: return await message.answer("❌ Қате.")
     await state.update_data(genre=message.text, added=0, dupes=0)
     await AdminStates.add_v_file.set()
-    await message.answer(
-        f"📂 Жанр: <b>{message.text}</b>\n\n🎥 Видеоларды жібере беріңіз.\nБірнеше видео жіберуге болады.\n\nБолған кезде «✅ Аяқтау» батырмасын басыңыз.",
-        reply_markup=finish_kb()
-    )
+    await message.answer(f"📂 Жанр: {message.text}\nВидео жібере беріңіз.", reply_markup=finish_kb())
 
 @dp.message_handler(state=AdminStates.add_v_file, content_types=["video"], user_id=ADMIN_ID)
 async def add_video_file(message: types.Message, state: FSMContext):
@@ -717,14 +783,11 @@ async def add_video_file(message: types.Message, state: FSMContext):
         exists = await (await db.execute("SELECT id FROM content WHERE file_unique_id=?", (unique_id,))).fetchone()
         if exists:
             await state.update_data(dupes=data.get("dupes", 0) + 1)
-            try:
-                await message.delete()
+            try: await message.delete()
             except: pass
             return
-        await db.execute(
-            "INSERT INTO content(file_id, file_unique_id, type, genre) VALUES (?, ?, ?, ?)",
-            (message.video.file_id, unique_id, "video", data["genre"])
-        )
+        await db.execute("INSERT INTO content(file_id, file_unique_id, type, genre) VALUES (?, ?, ?, ?)", 
+                         (message.video.file_id, unique_id, "video", data["genre"]))
         await db.commit()
     await state.update_data(added=data.get("added", 0) + 1)
 

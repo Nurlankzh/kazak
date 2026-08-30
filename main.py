@@ -205,7 +205,7 @@ def main_kb(uid: int):
     kb.add("🎬 Контент", "➕ Видео жіберу")
     kb.add("💰 Баланс", "👥 Реферал")
     kb.add("🎁 Тегін монета", "📋 Задания")
-    kb.add("💎 Монета сатып алу", "🔐 VIP контент")
+    kb.add("💎 Монета сатып алу") # VIP контент алынып тасталды
     if uid == ADMIN_ID:
         kb.add("⚙️ Админ")
     return kb
@@ -305,8 +305,6 @@ async def start(message: types.Message, state: FSMContext):
                 # Бір адам өзін-өзі шақыра алмайды
                 ref_user = await (await db.execute("SELECT id FROM users WHERE id=?", (ref_id,))).fetchone()
                 if ref_user:
-                    # Реферал үшін тексеру: бұл адам бұрын тіркелмеген болса ғана берілуі керек. 
-                    # Бірақ жеңілдетілген нұсқада старт басқан сайын емес, тек жаңа болса. (Қазіргі логика бойынша старт басқан сайын қосылып кетуі мүмкін, сондықтан қатаң қадағалау керек).
                     pass
 
     if not await check_sub(uid):
